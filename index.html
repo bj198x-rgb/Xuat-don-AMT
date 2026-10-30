@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xuất đơn VNPost</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#f2f4f5}
+  button{width:100%;padding:14px;font-size:16px;border:0;border-radius:12px;background:#e5a323;font-weight:700}
+  #out{margin-top:16px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h2>Xuất đơn VNPost</h2>
+<button id="btn">Kiểm tra kết nối</button>
+<div id="out"></div>
+<script>
+const API_URL = 'DÁN_LINK_EXEC_VÀO_ĐÂY';
+const out = document.getElementById('out');
+
+async function callApi(action, payload = {}) {
+  let key = localStorage.getItem('key');
+  if (!key) { key = prompt('Nhập mật khẩu'); localStorage.setItem('key', key); }
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ key, action, ...payload })
+  });
+  const r = await res.json();
+  if (!r.ok) {
+    if (r.error === 'Sai mật khẩu') localStorage.removeItem('key');
+    throw new Error(r.error);
+  }
+  return r.data;
+}
+
+document.getElementById('btn').onclick = async () => {
+  out.textContent = 'Đang gọi...';
+  try { out.textContent = 'Kết nối OK: ' + await callApi('ping'); }
+  catch (e) { out.textContent = 'Lỗi: ' + e.message; }
+};
+</script>
+</body>
+</html>
