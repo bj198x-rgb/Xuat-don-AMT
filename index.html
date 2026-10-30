@@ -1,44 +1,2120 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+/* ===== CẦU NỐI GITHUB PAGES <-> APPS SCRIPT =====
+   Không cần sửa gì ở đây: lần đầu mở trang, trang sẽ hỏi link /exec và nhớ lại.
+   (Muốn cố định thì dán link /exec vào giữa hai dấu nháy bên dưới.) */
+var API_URL = '';
+/* ================================================ */
+(function () {
+  function layMatKhau() {
+    var k = '';
+    try { k = localStorage.getItem('mat_khau_api') || ''; } catch (e) {}
+    if (!k) {
+      k = window.prompt('Nhập mật khẩu để sử dụng:') || '';
+      if (k) { try { localStorage.setItem('mat_khau_api', k); } catch (e) {} }
+    }
+    return k;
+  }
+  function xoaMatKhau() { try { localStorage.removeItem('mat_khau_api'); } catch (e) {} }
+
+  var urlLuu = false; // link lấy từ bộ nhớ trình duyệt (không phải dán cố định trong file)
+  function layUrl() {
+    if (API_URL) return API_URL;
+    var u = '';
+    try { u = localStorage.getItem('url_api') || ''; } catch (e) {}
+    if (!u) {
+      u = (window.prompt('Dán link web app (kết thúc bằng /exec):') || '').trim();
+      if (u && u.indexOf('https://script.google.com/') === 0 && /\/exec$/.test(u)) {
+        try { localStorage.setItem('url_api', u); } catch (e) {}
+      } else if (u) {
+        return 'SAI';
+      }
+    }
+    urlLuu = true;
+    return u;
+  }
+  function xoaUrl() { try { localStorage.removeItem('url_api'); } catch (e) {} }
+
+  function goiApi(ham, args) {
+    var url = layUrl();
+    if (url === 'SAI') {
+      return Promise.reject(new Error('Link không đúng. Phải bắt đầu bằng https://script.google.com/ và kết thúc bằng /exec. Tải lại trang để nhập lại.'));
+    }
+    if (!url) return Promise.reject(new Error('Chưa nhập link web app. Tải lại trang để nhập lại.'));
+    var key = layMatKhau();
+    if (!key) return Promise.reject(new Error('Chưa nhập mật khẩu. Tải lại trang để nhập lại.'));
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ key: key, ham: ham, args: args })
+    }).catch(function () {
+      if (urlLuu) xoaUrl();
+      throw new Error('Không kết nối được tới Apps Script. Kiểm tra: (1) link phải là link /exec; (2) bản triển khai có "Ai có quyền truy cập" = Bất kỳ ai; (3) đã dán doPost và Triển khai phiên bản mới. Sửa xong thì tải lại trang để nhập lại link.');
+    }).then(function (res) {
+      return res.text();
+    }).then(function (txt) {
+      var r;
+      try { r = JSON.parse(txt); }
+      catch (e) { throw new Error('Máy chủ trả về dữ liệu không hợp lệ. Kiểm tra bản triển khai: "Ai có quyền truy cập" phải là "Bất kỳ ai".'); }
+      if (!r.ok) {
+        if (r.error === 'Sai mật khẩu') xoaMatKhau();
+        throw new Error(r.error || 'Lỗi không rõ');
+      }
+      return r.data;
+    });
+  }
+
+  function tao(ok, loi) {
+    return new Proxy({}, {
+      get: function (_, ten) {
+        if (ten === 'withSuccessHandler') return function (f) { return tao(f, loi); };
+        if (ten === 'withFailureHandler') return function (f) { return tao(ok, f); };
+        return function () {
+          var args = Array.prototype.slice.call(arguments);
+          while (args.length && args[args.length - 1] === undefined) args.pop();
+          goiApi(String(ten), args).then(
+            function (d) { if (ok) ok(d); },
+            function (e) { if (loi) loi(e); }
+          );
+        };
+      }
+    });
+  }
+  window.google = { script: { run: tao(null, null) } };
+})();
+</script>
+
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Xuất đơn VNPost</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
-  body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#f2f4f5}
-  button{width:100%;padding:14px;font-size:16px;border:0;border-radius:12px;background:#e5a323;font-weight:700}
-  #out{margin-top:16px;white-space:pre-wrap}
+  :root {
+    --ink: #15262c;          /* mực: xanh than đậm */
+    --ink-2: #1f363e;
+    --muted: #5a6a70;
+    --bg: #eaf0ef;           /* nền xám xanh mát */
+    --paper: #ffffff;
+    --line: #d8e1e0;
+    --turmeric: #e3a428;     /* vàng nghệ: nút chính, con số */
+    --turmeric-press: #b47f17;
+    --leaf: #2e7d55;         /* xanh lá: file Google Sheet */
+    --alert: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); }
+  body {
+    color: var(--ink);
+    font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 28px 16px 150px; }
+
+  /* Đầu trang */
+  .ngay { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; margin: 0; }
+  .mo-ta { color: var(--muted); margin: 6px 0 24px; font-size: 15px; }
+
+  /* Phiếu: thẻ có mép xé răng cưa ở trên, gợi phiếu gửi hàng */
+  .phieu {
+    position: relative;
+    background: var(--paper);
+    border-radius: 0 0 14px 14px;
+    padding: 22px 18px 20px;
+    margin-top: 14px;
+    margin-bottom: 18px;
+  }
+  .phieu::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: -9px;
+    height: 10px;
+    background: radial-gradient(circle at 8px 10px, var(--paper) 7px, transparent 7.5px) repeat-x;
+    background-size: 16px 10px;
+  }
+  .an { display: none !important; }
+  .nhan { font-size: 14px; color: var(--muted); margin: 0 0 8px; }
+  .gia-tri { font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+  .hang + .hang { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); }
+
+  /* Chọn tab nguồn */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-weight: 600; font-size: 15px;
+    padding: 9px 16px; min-height: 42px;
+    border-radius: 999px;
+    border: 1.5px solid var(--line);
+    background: var(--paper);
+    cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .cho { color: var(--muted); font-size: 15px; }
+
+  /* Kết quả */
+  .so-don { font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; margin: 0; }
+  .so-don small { font-size: 18px; font-weight: 600; letter-spacing: 0; margin-left: 4px; }
+  .so-dong { color: var(--muted); margin: 6px 0 14px; }
+  .dau { color: var(--leaf); font-weight: 700; font-size: 15px; margin: 0 0 10px; }
+  /* Kết quả xuất theo cột Q: mỗi đơn vị 1 dòng */
+  .kq-nhieu { list-style: none; margin: 0 0 4px; padding: 0; border-top: 1px solid var(--line, #e2e6e3); }
+  .kq-nhieu li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--line, #e2e6e3); }
+  .kq-dv { grid-row: span 2; align-self: start; font-weight: 800; font-size: 13px; letter-spacing: .02em;
+    background: var(--ink); color: #fff; border-radius: 8px; padding: 5px 8px; min-width: 64px; text-align: center; }
+  .kq-mau { font-weight: 700; }
+  .kq-chi, .kq-trong, .kq-loi { grid-column: 2 / 4; font-size: 14px; color: var(--muted); word-break: break-word; }
+  .kq-chi b { color: var(--ink); }
+  .kq-loi { color: var(--alert, #b3261e); }
+  .kq-nut { grid-column: 3; grid-row: 1; display: flex; gap: 6px; }
+  .kq-nut a { text-decoration: none; font-weight: 700; font-size: 14px; border-radius: 10px; padding: 7px 12px; }
+  .nut-phu { display: flex; gap: 10px; margin-top: 16px; }
+  .nut-phu a, .nut-phu button {
+    flex: 1; text-align: center; text-decoration: none;
+    font-weight: 700; font-size: 15px;
+    padding: 12px 10px; border-radius: 12px; min-height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .vien { border: 1.5px solid var(--ink); color: var(--ink); background: var(--paper); }
+  .dac { background: var(--leaf); color: #fff; border: 0; }
+  .dac:disabled { background: #9db7a7; cursor: not-allowed; }
+  .goi-y { font-size: 14px; color: var(--muted); margin: 14px 0 0; }
+
+  .loi { border-left: 4px solid var(--alert); }
+  .loi .tieu-de-loi { color: var(--alert); font-weight: 700; margin: 0 0 4px; }
+  .loi p { margin: 0; }
+
+  /* Tiêu đề mục */
+  .muc { font-size: 17px; font-weight: 700; margin: 28px 0 10px; }
+
+  /* Công cụ */
+  .nut-cong-cu {
+    width: 100%; text-align: left; cursor: pointer;
+    background: var(--paper); border: 1.5px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; min-height: 56px;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .nut-cong-cu b { font-weight: 700; }
+  .nut-cong-cu span { color: var(--muted); font-size: 14px; }
+
+  /* Lịch sử */
+  .lich-su { list-style: none; margin: 0; padding: 0; }
+  .lich-su li {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+    border-bottom: 1px solid var(--line);
+  }
+  .lich-su a {
+    display: grid; grid-template-columns: 86px 1fr; gap: 8px; align-items: baseline;
+    padding: 12px 2px; min-width: 0;
+    color: var(--ink); text-decoration: none;
+  }
+  .luc { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .loai { font-size: 12px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; margin-right: 6px; }
+  .ten { font-weight: 500; font-size: 15px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doi-ten {
+    background: none; border: 0; cursor: pointer;
+    color: var(--ink); font-weight: 700; font-size: 14px;
+    padding: 10px 4px 10px 10px; min-height: 44px;
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+  .sua-ten { grid-column: 1 / -1; padding: 10px 0 12px; }
+  .sua-ten input {
+    width: 100%; font-size: 16px; padding: 10px 12px;
+    border: 1.5px solid var(--ink); border-radius: 10px; background: #fff;
+  }
+  .sua-ten .duoi { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+  .sua-ten .nut-phu { margin-top: 10px; }
+  .trong { color: var(--muted); font-size: 15px; padding: 8px 2px; }
+
+  /* Nối PDF */
+  .chon-pdf { list-style: none; margin: 0 0 12px; padding: 0; max-height: 46vh; overflow-y: auto; }
+  .chon-pdf button {
+    width: 100%; display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: center;
+    text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 10px 2px; min-height: 52px; cursor: pointer;
+  }
+  .thu-tu {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 1.5px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 14px;
+  }
+  .chon-pdf button[aria-pressed="true"] .thu-tu { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .chon-pdf button > span:last-child { min-width: 0; }
+  .chon-pdf .phu { display: block; color: var(--muted); font-size: 13px; }
+  .them-file {
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px dashed var(--muted); border-radius: 12px;
+    min-height: 48px; font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  .tom-tat { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+
+  /* Nhập cân nặng từ ảnh */
+  .chon-anh {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    border: 1.5px dashed var(--muted); border-radius: 12px;
+    min-height: 88px; padding: 12px; text-align: center; cursor: pointer;
+  }
+  .chon-anh b { font-size: 16px; }
+  .chon-anh span { color: var(--muted); font-size: 13px; }
+  .anh-xem { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 0; }
+  .anh-xem img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+  .ds-can { list-style: none; margin: 14px 0 0; padding: 0; }
+  .ds-can li {
+    display: grid; grid-template-columns: 28px 1fr; gap: 10px;
+    padding: 12px 0; border-bottom: 1px solid var(--line);
+  }
+  .ds-can input[type=checkbox] { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--ink); }
+  .ds-can .dong-1 { font-weight: 700; }
+  .ds-can .dong-2 { font-size: 14px; color: var(--muted); }
+  .ds-can .nhap-kg { margin: 8px 0 4px; font-size: 14px; }
+  .ds-can .nhap-kg input {
+    width: 84px; font-size: 16px; padding: 8px 10px; margin: 0 4px; display: inline-block;
+    border: 1.5px solid var(--line); border-radius: 8px; background: #fff;
+  }
+  .ds-can .trang-thai { font-size: 13px; font-weight: 600; }
+  .ds-can .chac { color: var(--leaf); }
+  .ds-can .xem { color: #8a5a00; }
+  .ds-can .khong { color: var(--alert); }
+
+  /* Hai nút chính cố định dưới đáy, trong tầm ngón cái */
+  .day {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg) 70%, rgba(230,236,236,0));
+  }
+  .hang-nut { display: grid; grid-template-columns: 2fr 3fr; gap: 10px; max-width: 448px; margin: 0 auto; }
+  .nut-pdf, .nut-xuat {
+    position: relative; overflow: hidden; cursor: pointer;
+    border-radius: 16px; min-height: 62px;
+  }
+  .nut-pdf { font-size: 17px; font-weight: 700; background: var(--paper); border: 1.5px solid var(--ink); }
+  .nut-xuat {
+    font-size: 19px; font-weight: 800;
+    background: var(--turmeric); border: 0;
+    box-shadow: 0 3px 0 var(--turmeric-press);
+  }
+  .nut-xuat:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--turmeric-press); }
+  .nut-pdf:disabled, .nut-xuat:disabled { cursor: progress; }
+  .vach { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: var(--ink); }
+  .dang-chay .vach { animation: chay 22s cubic-bezier(.2,.6,.3,1) forwards; }
+  @keyframes chay { from { width: 0; } to { width: 92%; } }
+
+  :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) {
+    .dang-chay .vach { animation: none; width: 100%; opacity: .35; }
+  }
+
+  /* ===== Giao diện mới: thanh trên, tổng quan, điều khiển phân đoạn, lưới công cụ ===== */
+  .thanh-tren {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px calc(12px);
+    background: rgba(230, 236, 236, .92);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .thanh-tren > * { max-width: 448px; }
+  .thuong-hieu { display: flex; align-items: center; gap: 10px; }
+  .dau-an {
+    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--turmeric); color: var(--ink);
+  }
+  .ten-app { margin: 0; font-weight: 800; font-size: 16px; line-height: 1.2; }
+  .ngay-nho { margin: 0; font-size: 13px; color: var(--muted); }
+  .nut-thu-muc {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 12px; min-height: 40px; border-radius: 10px;
+    border: 1.5px solid var(--line); background: var(--paper);
+    color: var(--ink); text-decoration: none; font-weight: 700; font-size: 14px;
+  }
+  .wrap { padding-top: 18px; }
+
+  .tong-quan {
+    background: var(--ink); color: #fff;
+    border-radius: 18px; padding: 18px 18px 16px; margin-bottom: 18px;
+  }
+  .tq-dau { display: flex; justify-content: space-between; align-items: center; }
+  .tq-nhan { margin: 0; font-size: 14px; color: rgba(255,255,255,.72); }
+  .tq-lam-moi {
+    background: rgba(255,255,255,.1); border: 0; color: #fff; cursor: pointer;
+    width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  }
+  .tq-so { margin: 6px 0 0; font-size: 52px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; color: var(--turmeric); }
+  .tq-so small { font-size: 18px; font-weight: 600; color: #fff; margin-left: 6px; letter-spacing: 0; }
+  .tq-phu { margin: 8px 0 12px; font-size: 13px; color: rgba(255,255,255,.72); }
+  .tq-file { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tq-file span {
+    font-size: 13px; font-weight: 600; padding: 5px 10px; border-radius: 999px;
+    background: rgba(255,255,255,.1);
+  }
+  .tq-file b { color: var(--turmeric); margin-left: 4px; }
+  .dang-dem .tq-so { opacity: .45; }
+
+  .chips.cuon { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .chips.cuon::-webkit-scrollbar { display: none; }
+  .chips.cuon .chip { flex: none; }
+  .chips.seg {
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px;
+    background: #edf1f1; border-radius: 12px; padding: 4px;
+  }
+  .chips.seg .chip {
+    border: 0; border-radius: 9px; background: transparent; min-height: 40px;
+    padding: 8px 6px; font-size: 14px; color: var(--muted);
+  }
+  .chips.seg .chip[aria-pressed="true"] {
+    background: var(--paper); color: var(--ink);
+    box-shadow: 0 1px 3px rgba(29, 42, 47, .18);
+  }
+
+  .luoi { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .o-cong-cu {
+    display: flex; flex-direction: column; justify-content: space-between; gap: 14px;
+    text-align: left; text-decoration: none; color: var(--ink); cursor: pointer;
+    background: var(--paper); border: 1.5px solid var(--line); border-radius: 14px;
+    padding: 14px; min-height: 112px;
+  }
+  .o-cong-cu b { display: block; font-size: 15px; }
+  .o-cong-cu .phu { display: block; font-size: 13px; color: var(--muted); }
+  .bt-cc { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+  .bt-vang { background: #fbeccb; color: #8a5a00; }
+  .bt-do { background: #f7dcd9; color: var(--alert); }
+  .bt-xanh { background: #d9eee1; color: var(--leaf); }
+  .bt-muc { background: #e1e8ea; color: var(--ink); }
+
+  .lich-su a { grid-template-columns: 40px 1fr; align-items: center; }
+  .bt-file {
+    width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; letter-spacing: .02em; color: #fff;
+  }
+  .bt-file.xls { background: var(--leaf); }
+  .bt-file.pdf { background: var(--alert); }
+  .lich-su .chu { min-width: 0; }
+  .lich-su .chu .ten { display: block; }
+  .lich-su .chu .luc { display: block; font-size: 13px; }
+
+  .nut-pdf, .nut-xuat { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+  /* ===== Gửi file qua Zalo ===== */
+  :root { --zalo: #0068ff; --zalo-nhat: #dce9ff; }
+  .bt-zalo { background: var(--zalo-nhat); color: var(--zalo); }
+  .nut-phu .zalo, .zalo { background: var(--zalo); color: #fff; border: 0; }
+  .zalo:disabled { background: #9dbcf0; cursor: not-allowed; }
+  .rong {
+    width: 100%; margin-top: 10px; min-height: 48px; border-radius: 12px;
+    font-weight: 700; font-size: 15px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  #ds-zalo .thu-tu { font-size: 15px; }
+  #ds-zalo button[aria-pressed="true"] .thu-tu { background: var(--zalo); border-color: var(--zalo); }
+  #ds-zalo .the { font-size: 11px; font-weight: 800; color: #fff; border-radius: 5px; padding: 1px 5px; margin-right: 6px; }
+  #ds-zalo .the.xls { background: var(--leaf); }
+  #ds-zalo .the.pdf { background: var(--alert); }
+  #ds-zalo .tt-tai { color: #8a5a00; }
+  #ds-zalo .tt-xong { color: var(--leaf); }
+  #ds-zalo .tt-loi { color: var(--alert); }
+  .du-phong {
+    background: #f4f7f7; border-radius: 12px; padding: 14px; margin: 12px 0 0;
+    border-left: 4px solid var(--zalo);
+  }
+  .du-phong .ly-do { font-weight: 700; margin: 0 0 6px; }
+  .du-phong ol { margin: 0 0 10px; padding-left: 20px; font-size: 14px; color: var(--muted); }
+  .du-phong ol li + li { margin-top: 4px; }
+  .ds-du-phong { list-style: none; margin: 0; padding: 0; }
+  .ds-du-phong li { padding: 10px 0; border-top: 1px solid var(--line); }
+  .ds-du-phong .ten { display: block; margin-bottom: 8px; }
+  .ds-du-phong .nut-phu { margin-top: 0; }
+  .ds-du-phong .nut-phu a { min-height: 44px; font-size: 14px; }
+
+  /* ===== Hướng dẫn sử dụng ===== */
+  .nhom-nut-tren { display: flex; gap: 8px; }
+  .phieu { scroll-margin-top: 80px; }
+  .nut-hd { padding: 8px 10px; cursor: pointer; }
+  .hd-mo-dau { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+  .hd details { border-top: 1px solid var(--line); }
+  .hd details:last-of-type { border-bottom: 1px solid var(--line); }
+  .hd summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 13px 2px; min-height: 52px; font-weight: 700; font-size: 15px;
+  }
+  .hd summary::-webkit-details-marker { display: none; }
+  .hd summary::after { content: "+"; margin-left: auto; font-size: 20px; font-weight: 500; color: var(--muted); }
+  .hd details[open] summary::after { content: "−"; }
+  .hd .so { flex: none; width: 26px; height: 26px; border-radius: 8px; background: #edf1f1;
+    display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; }
+  .hd .noi { padding: 0 2px 14px 36px; font-size: 14px; }
+  .hd .noi p { margin: 0 0 8px; }
+  .hd .noi ol, .hd .noi ul { margin: 0 0 8px; padding-left: 18px; }
+  .hd .noi li + li { margin-top: 4px; }
+  .hd .luu-y { background: #fbeccb; color: #6b4600; border-radius: 10px; padding: 8px 10px; }
+  /* ===== Giao diện tinh chỉnh: phiếu gửi hàng ===== */
+  /* Thẻ trắng: bo đều, viền mảnh, bỏ mép răng cưa để phần phiếu tổng quan là điểm nhấn duy nhất */
+  .phieu { border-radius: 18px; border: 1px solid var(--line); margin-top: 0; }
+  .phieu::before { display: none; }
+  .thanh-tren { background: rgba(234, 240, 239, .88); }
+  .dau-an { background: var(--ink); color: var(--turmeric); border-radius: 12px; }
+  .nut-thu-muc { border: 1px solid var(--line); border-radius: 12px; }
+
+  /* Phiếu tổng quan: như một phiếu gửi hàng có đường xé và 2 cuống phiếu là 2 file nguồn */
+  .tong-quan {
+    position: relative;
+    background: var(--ink);
+    border-radius: 22px;
+    padding: 20px 18px 16px;
+    box-shadow: 0 14px 30px -18px rgba(21, 38, 44, .7);
+  }
+  .tq-nhan { font-size: 14px; color: rgba(255,255,255,.7); }
+  .tq-so { font-size: 60px; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .tq-phu { margin: 8px 0 0; }
+  .duc-lo {
+    position: relative; height: 26px; margin: 12px -18px 12px;
+    background:
+      radial-gradient(circle at 0 50%, var(--bg) 12px, transparent 12.5px),
+      radial-gradient(circle at 100% 50%, var(--bg) 12px, transparent 12.5px);
+  }
+  .duc-lo::before {
+    content: ""; position: absolute; left: 22px; right: 22px; top: 50%;
+    border-top: 2px dashed rgba(255,255,255,.2);
+  }
+  .cuong { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cuong-file {
+    display: flex; flex-direction: column; gap: 10px; min-width: 0;
+    padding: 12px; border-radius: 14px; min-height: 104px;
+    background: var(--ink-2); border: 1px solid rgba(255,255,255,.1);
+    color: #fff; text-decoration: none;
+  }
+  .cuong-file:active { background: #27434c; }
+  .cf-dau { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .cf-icon {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--leaf); color: #fff;
+  }
+  .cf-so { font-size: 13px; color: rgba(255,255,255,.7); white-space: nowrap; }
+  .cf-so b { font-size: 22px; font-weight: 800; color: var(--turmeric); margin-right: 3px; font-variant-numeric: tabular-nums; }
+  .cf-ten { font-weight: 800; font-size: 16px; line-height: 1.25; }
+  .cf-mo {
+    display: flex; align-items: center; gap: 5px; margin-top: auto;
+    font-size: 13px; font-weight: 600; color: rgba(255,255,255,.72);
+    min-width: 0;
+  }
+  .cf-mo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cf-mo svg { flex: none; }
+
+  /* Ô công cụ và lịch sử: phẳng, viền mảnh */
+  .o-cong-cu { border: 1px solid var(--line); border-radius: 16px; }
+  .muc { font-size: 18px; letter-spacing: -0.01em; }
+
+  /* Thanh nút dưới đáy: nền mờ kính, nút chính vàng nghệ */
+  .day {
+    background: rgba(234, 240, 239, .86);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+  .nut-pdf { border: 1.5px solid var(--ink); border-radius: 16px; }
+  .nut-xuat {
+    border-radius: 16px; color: var(--ink);
+    background: var(--turmeric);
+    box-shadow: 0 3px 0 var(--turmeric-press), 0 10px 20px -12px rgba(180, 127, 23, .9);
+  }
+
+  /* ===== Gửi Telegram ===== */
+  :root { --tele: #2a8bc8; }
+  .nut-phu .tele, .tele { background: var(--tele); color: #fff; border: 0; }
+  .tele:disabled { background: #a3c9e2; cursor: not-allowed; }
+  .khoi-tele { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .chip-them { border-style: dashed !important; color: var(--muted); }
+  .tele-quan-ly { margin-top: 12px; background: #f4f7f7; border-radius: 12px; padding: 12px; }
+  .ds-tele { list-style: none; margin: 8px 0; padding: 0; }
+  .ds-tele li {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+  }
+  .ds-tele li:last-child { border-bottom: 0; }
+  .ds-tele .ten-tele { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+  .ds-tele .loai-tele { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .ds-tele button {
+    flex: none; min-height: 38px; padding: 6px 14px; border-radius: 10px; cursor: pointer;
+    font-weight: 700; font-size: 14px; border: 1.5px solid var(--ink); background: #fff;
+  }
+  .ds-tele button.xoa { border-color: var(--alert); color: var(--alert); }
+  .tele-loi-nhan { display: block; margin-top: 14px; }
+  .tele-loi-nhan input {
+    width: 100%; font-size: 16px; padding: 10px 12px;
+    border: 1.5px solid var(--line); border-radius: 10px; background: #fff;
+  }
+  .tt-ok { color: var(--leaf); font-weight: 600; }
+
+  .link-hd {
+    display: block; width: 100%; margin: 22px 0 0; padding: 14px; min-height: 48px;
+    background: none; border: 1.5px dashed var(--muted); border-radius: 12px;
+    font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  /* ===== Bố cục theo màn hình: điện thoại 1 cột, máy tính 2 cột ===== */
+  @media (min-width: 640px) {
+    .wrap { max-width: 600px; }
+    .thanh-tren { padding-left: max(16px, calc((100% - 600px) / 2 + 16px)); padding-right: max(16px, calc((100% - 600px) / 2 + 16px)); }
+    .thanh-tren > * { max-width: none; }
+    .hang-nut { max-width: 568px; }
+    .luoi { grid-template-columns: repeat(4, 1fr); }
+  }
+  @media (min-width: 980px) {
+    .thanh-tren { padding-left: max(24px, calc((100% - 1180px) / 2 + 24px)); padding-right: max(24px, calc((100% - 1180px) / 2 + 24px)); }
+    .thanh-tren > * { max-width: none; }
+    .wrap {
+      max-width: 1180px; padding: 24px 24px 48px;
+      display: grid; grid-template-columns: minmax(360px, 420px) 1fr; gap: 28px; align-items: start;
+    }
+    .cot-trai { min-width: 0; }
+    .cot-phai { min-width: 0; }
+    .cot-phai > .phieu:first-child, .cot-phai > .muc:first-of-type { margin-top: 0; }
+    /* 2 nút xuất bám đáy màn hình trong cột trái, luôn bấm được dù cột dài hơn màn hình */
+    .day {
+      position: sticky; bottom: 16px; z-index: 4;
+      padding: 10px; margin-top: 4px; border-radius: 20px;
+      background: rgba(234, 240, 239, .9); border: 1px solid var(--line);
+    }
+    .hang-nut { max-width: none; }
+    .muc { margin-top: 26px; }
+    .cot-phai .muc:first-of-type { margin-top: 0; }
+    .phieu { margin-bottom: 18px; }
+    .lich-su { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 4px 16px; }
+    .lich-su li:last-child { border-bottom: 0; }
+    .chon-pdf { max-height: 52vh; }
+  }
+  @media (min-width: 1280px) {
+    .wrap { grid-template-columns: 440px 1fr; }
+  }
 </style>
 </head>
 <body>
-<h2>Xuất đơn VNPost</h2>
-<button id="btn">Kiểm tra kết nối</button>
-<div id="out"></div>
+<header class="thanh-tren">
+  <div class="thuong-hieu">
+    <span class="dau-an" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+    </span>
+    <div>
+      <p class="ten-app">Xuất đơn VNPost</p>
+      <p class="ngay-nho" id="ngay">Hôm nay</p>
+    </div>
+  </div>
+  <div class="nhom-nut-tren">
+    <button type="button" class="nut-thu-muc nut-hd" id="mo-hd" aria-label="Hướng dẫn sử dụng">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.4"/><path d="M12 17h.01"/></svg>
+    </button>
+    <a class="nut-thu-muc" id="link-output" href="#" target="_blank" rel="noopener" aria-label="Mở thư mục Output">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <span>Output</span>
+    </a>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="cot-trai">
+  <section class="tong-quan" aria-live="polite">
+    <div class="tq-dau">
+      <p class="tq-nhan" id="tq-nhan">Đơn sẵn sàng xuất</p>
+      <button type="button" class="tq-lam-moi" id="tq-lam-moi" aria-label="Đếm lại">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+    </div>
+    <p class="tq-so"><span id="tq-so">–</span><small>đơn</small></p>
+    <p class="tq-phu">Có cân nặng và đang hiển thị trong tab đã chọn</p>
+    <div class="duc-lo" aria-hidden="true"></div>
+    <div class="cuong" id="tq-file" aria-label="Mở file Google Sheet nguồn"></div>
+  </section>
+
+  <section class="phieu" aria-label="Thiết lập">
+    <div class="hang">
+      <p class="nhan" id="nhan-tab">Tab</p>
+      <div class="chips cuon" id="chips" role="group" aria-labelledby="nhan-tab">
+        <span class="cho">Đang tải danh sách tab…</span>
+      </div>
+    </div>
+    <div class="hang">
+      <p class="nhan" id="nhan-nguon">Lấy đơn từ file</p>
+      <div class="chips seg" id="chips-nguon" role="group" aria-labelledby="nhan-nguon"></div>
+    </div>
+    <div class="hang">
+      <p class="nhan" id="nhan-mau">Mẫu file Excel</p>
+      <div class="chips seg" id="chips-mau" role="group" aria-labelledby="nhan-mau"></div>
+    </div>
+    <div class="hang">
+      <p class="nhan" id="nhan-dvvc">Đơn vị vận chuyển khi xuất PDF</p>
+      <div class="chips seg" id="chips-dvvc" role="group" aria-labelledby="nhan-dvvc"></div>
+    </div>
+    <div class="hang">
+      <p class="nhan">Lưu vào thư mục</p>
+      <p class="gia-tri" id="thu-muc">…</p>
+    </div>
+  </section>
+
+  <div class="day">
+    <div class="hang-nut">
+      <button class="nut-pdf" id="nut-pdf" type="button" disabled>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
+        <span id="chu-pdf">Xuất PDF</span>
+        <span class="vach" aria-hidden="true"></span>
+      </button>
+      <button class="nut-xuat" id="nut-xuat" type="button" disabled>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
+        <span id="chu-nut">Xuất file Excel</span>
+        <span class="vach" aria-hidden="true"></span>
+      </button>
+    </div>
+  </div>
+  </div>
+
+  <div class="cot-phai">
+  <section class="phieu hd an" id="huong-dan" aria-labelledby="tieu-de-hd">
+    <p class="dau" id="tieu-de-hd">Hướng dẫn sử dụng</p>
+    <p class="hd-mo-dau">Chạm vào từng mục để xem cách làm.</p>
+
+    <details>
+      <summary><span class="so">1</span>Xuất file Excel gửi VNPost</summary>
+      <div class="noi">
+        <ol>
+          <li>Chọn <b>Tab</b> tháng cần xuất (ví dụ DS T10).</li>
+          <li>Chọn <b>Lấy đơn từ file</b>: DS Lẻ, DS CTV hoặc Cả 2 file (DS Lẻ đứng trước, STT đánh liên tục).</li>
+          <li>Chọn <b>Mẫu file Excel</b>: HANH_NGUYEN hoặc AN MAITRI.</li>
+          <li>Bấm nút vàng <b>Xuất file Excel</b>. Xong sẽ hiện tên file, nút Mở trong Drive, Tải về và Gửi Zalo.</li>
+        </ol>
+        <p>App chỉ lấy dòng <b>có cân nặng ở cột M</b> và <b>đang hiển thị</b> theo bộ lọc của sheet.</p>
+        <ul>
+          <li>Cân nặng dạng 2+3 được tách thành 2 dòng, tên thêm 1/2, 2/2. COD chỉ giữ ở dòng đầu. Các dòng sau: mẫu HANH_NGUYEN, AN MAITRI ghi 5 nếu khách chịu phí ship, còn lại ghi 0; mẫu VIETTEL luôn ghi 0 K.</li>
+          <li>Cột ghi chú chỉ giữ nội dung có "ship nhanh" hoặc "không thu tiền".</li>
+          <li>Tên, SĐT, địa chỉ bị trùng được tô màu cam để kiểm tra.</li>
+          <li>Đơn từ 4kg trở lên (từ 4.000g): ô khối lượng ở cột I và cột AN tô nền tím.</li>
+          <li>Đơn từ 4kg trở lên gửi miền Trung, miền Nam (từ Đà Nẵng trở vào): cột ghi chú tự ghi SHIP NHANH.</li>
+          <li>Mẫu HANH_NGUYEN và AN MAITRI: mỗi tháng 1 file Excel trong thư mục Output (ví dụ T10.2026.HANH_NGUYEN_Vnpost.xlsx). Mỗi lần xuất thêm 1 tab tên ngày (14.10) ở đầu file; xuất lần 2 trong ngày tạo tab 14.10 (2). Đầu tháng app tự tạo file mới.</li>
+          <li><b>Mẫu "Theo cột Q"</b>: bấm Xuất 1 lần, app tự chia đơn có cân nặng theo cột Q (SHIP): ô trống → HANH_NGUYEN, AMT → AN MAITRI, VIETTEL → Viettel post - PAH. Đơn vị nào không có đơn thì bỏ qua.</li>
+          <li>Mẫu VIETTEL: thêm tab ngày vào file Google Sheet "Viettel post - PAH", giữ nguyên dòng tổng ở cuối. Tab mới tự lọc chỉ hiện dòng có khách, dòng trống được ẩn (bấm biểu tượng lọc ở cột C để hiện lại).</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">2</span>Xuất PDF danh sách khách hàng</summary>
+      <div class="noi">
+        <p>Chọn tab và file như khi xuất Excel, rồi bấm <b>Xuất PDF</b>. File PDF gồm các dòng đang hiển thị, từ cột A đến cột N.</p>
+        <p>Chọn <b>Đơn vị vận chuyển</b> (VNPOST, VIETTEL, AMT) để chỉ in đơn của đơn vị đó theo cột Q (SHIP): ô trống là VNPOST. Không cần lọc tay cột Q trên sheet nữa. Cột STT trong PDF được đánh lại 1, 2, 3… riêng cho DS Lẻ và DS CTV. Dòng TỔNG CỘNG tự tính lại Thu COD theo đơn vị đã chọn. Tên file có ngày giờ ở đầu và đơn vị ở cuối, ví dụ 19.10.2026_0815_DS_khach_hang_GOP_VNPOST.pdf.</p>
+        <p>Đơn nào có chữ <b>ưu tiên</b> ở cột Ghi chú thì chân mọi trang của danh sách đó (Lẻ hoặc CTV) tự có dòng <b>ƯU TIÊN ĐƠN SỐ : …</b>, liệt kê đủ số STT các đơn ưu tiên.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">3</span>Ô "Đơn sẵn sàng xuất" và mở file nguồn</summary>
+      <div class="noi">
+        <p>Cho biết số đơn có cân nặng và đang hiển thị ở từng file. Sau khi nhập thêm cân nặng, bấm nút làm mới (mũi tên tròn) để đếm lại.</p>
+        <p>Chạm vào thẻ <b>DS Lẻ</b> hoặc <b>DS CTV</b> để mở thẳng file Google Sheet, đúng tab tháng đang chọn.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">4</span>Nhập cân nặng và tự ghi trạng thái</summary>
+      <div class="noi">
+        <p><b>Nhập tay trên sheet:</b> gõ cân nặng vào cột M. Cột O tự ghi "đã trả hàng", cột P tự ghi ngày hôm nay. Xóa cân nặng ở cột M thì cột O tự về 1.</p>
+        <p><b>Nhập từ ảnh:</b> gửi ảnh danh sách viết tay vào Claude Project, kiểm tra bảng Claude đề xuất rồi xác nhận để ghi.</p>
+        <p class="luu-y">Ô "Nhập cân nặng" trên app chỉ hiện khi đã cài khóa API Claude. Nếu còn sót dòng chưa ghi "đã trả hàng", dùng menu Xuất Excel → Ghi "đã trả hàng" cho các dòng đã có cân nặng.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">5</span>Gửi file qua Zalo hoặc Telegram</summary>
+      <div class="noi">
+        <p>Bấm ô <b>Gửi file</b> (hoặc nút gửi ngay sau khi xuất), chạm chọn file, rồi chọn <b>Gửi qua: Zalo</b> hoặc <b>Telegram</b>.</p>
+        <p><b>Zalo:</b> đợi file hiện "Sẵn sàng", bấm Gửi. Một tab mới mở ra, bấm <b>Chọn Zalo để gửi</b>, chọn người nhận hoặc nhóm.</p>
+        <p class="luu-y">Điện thoại Android thường không cho gửi thẳng file Excel qua Zalo. Khi đó dùng Telegram, hoặc bấm Mở Drive → ⋮ → Gửi bản sao → Zalo.</p>
+        <p><b>Telegram:</b> chọn người nhận, bấm Gửi. Bot gửi thẳng file (cả Excel và PDF), không cần mở thêm tab.</p>
+        <p><b>Cài Telegram lần đầu (trên máy tính):</b></p>
+        <ol>
+          <li>Trong Telegram, tìm <b>@BotFather</b>, gửi lệnh <b>/newbot</b>, đặt tên bot và tên đăng nhập (kết thúc bằng "bot"). BotFather trả về một <b>token</b>.</li>
+          <li>Trong Apps Script: Cài đặt dự án → Thuộc tính tập lệnh → thêm <b>TELEGRAM_BOT_TOKEN</b>, giá trị là token vừa nhận → Lưu.</li>
+          <li>Người nhận tìm bot của bạn trong Telegram và bấm <b>Start</b>. Với nhóm: thêm bot vào nhóm rồi nhắn 1 tin trong nhóm.</li>
+          <li>Trên app: Gửi file → Telegram → <b>+ Thêm người nhận</b> → <b>Tìm người nhận mới</b> → bấm <b>Thêm</b>.</li>
+        </ol>
+        <p class="luu-y">Giữ token bot bí mật. Ai có token đều điều khiển được bot.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">6</span>Nối PDF, gộp Excel</summary>
+      <div class="noi">
+        <p><b>Nối PDF:</b> bấm ô Nối PDF, chạm vào các file theo đúng thứ tự muốn ghép (số trong vòng tròn là thứ tự), có thể thêm PDF từ điện thoại, rồi bấm Nối file.</p>
+        <p><b>Gộp Excel:</b> bấm ô Gộp Excel, chọn các file theo thứ tự. Đơn của file số 1 đứng đầu, STT đánh lại liên tục. Các file phải cùng mẫu cột.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">7</span>Đổi tên file, mở thư mục Output</summary>
+      <div class="noi">
+        <p>Ở mục <b>Đã xuất gần đây</b>, bấm Đổi tên cạnh file, nhập tên mới rồi Lưu tên (đuôi .xlsx / .pdf giữ nguyên).</p>
+        <p>Nút <b>Output</b> trên cùng mở thư mục chứa mọi file đã xuất trên Google Drive.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">8</span>Dùng trên máy tính</summary>
+      <div class="noi">
+        <p><b>Cách 1:</b> mở đúng link app này bằng trình duyệt trên máy tính (đăng nhập cùng tài khoản Google). Nên lưu link vào dấu trang.</p>
+        <p><b>Cách 2:</b> mở file Google Sheet chứa code của app, vào menu <b>Xuất Excel → Mở bảng xuất đơn</b>. Bảng hiện ngay trong sheet, đủ chức năng như trên điện thoại.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">9</span>Sang tháng mới</summary>
+      <div class="noi">
+        <p>Chỉ cần đổi tên tab theo tháng, ví dụ DS T10 → DS T11. Tên tab phải bắt đầu đúng "DS T" (có dấu cách sau DS).</p>
+        <p class="luu-y">Không dùng "Tạo bản sao" để làm file tháng mới, vì bản sao có ID khác và app sẽ vẫn đọc file cũ. Giữ nguyên dòng tiêu đề và thứ tự cột.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="so">10</span>Khi gặp sự cố</summary>
+      <div class="noi">
+        <ul>
+          <li><b>"Đang có một lần xuất khác chạy":</b> đợi vài phút rồi bấm lại.</li>
+          <li><b>Số đơn hiện "–":</b> bấm nút làm mới; nếu vẫn vậy, đóng app và mở lại.</li>
+          <li><b>Không thấy tab tháng mới:</b> kiểm tra tên tab có bắt đầu bằng "DS T" không, rồi tải lại app.</li>
+          <li><b>Thiếu đơn khi xuất:</b> kiểm tra dòng đó đã có cân nặng ở cột M và không bị bộ lọc ẩn.</li>
+        </ul>
+      </div>
+    </details>
+
+    <div class="nut-phu">
+      <button type="button" class="vien" id="dong-hd">Đóng hướng dẫn</button>
+    </div>
+  </section>
+
+  <section class="phieu an" id="ket-qua" aria-live="polite">
+    <p class="dau" id="kq-dau">Đã xuất xong</p>
+    <p class="so-don"><span id="kq-so">0</span><small id="kq-don-vi">đơn</small></p>
+    <p class="so-dong" id="kq-phu"></p>
+    <ul class="kq-nhieu an" id="kq-nhieu"></ul>
+    <div id="kq-file">
+    <p class="nhan">Tên file</p>
+    <p class="gia-tri" id="kq-ten"></p>
+    <div class="nut-phu">
+      <a class="vien" id="kq-mo" href="#" target="_blank" rel="noopener">Mở trong Drive</a>
+      <a class="dac" id="kq-tai" href="#" target="_blank" rel="noopener">Tải file về</a>
+    </div>
+    <button type="button" class="zalo rong" id="kq-zalo">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+      Gửi file này qua Zalo / Telegram
+    </button>
+    <p class="goi-y">Muốn đổi tên, bấm Đổi tên ở danh sách bên dưới trước khi gửi.</p>
+    </div>
+  </section>
+
+  <section class="phieu loi an" id="loi" role="alert">
+    <p class="tieu-de-loi">Chưa làm được</p>
+    <p id="loi-noi-dung"></p>
+  </section>
+
+  <section class="phieu an" id="noi-pdf" aria-labelledby="tieu-de-noi">
+    <p class="dau" id="tieu-de-noi">Nối file PDF</p>
+    <p class="nhan" id="goi-y-ghep">Chạm vào file theo đúng thứ tự muốn nối. Số trong vòng tròn là thứ tự ghép, file số 1 đứng đầu.</p>
+    <ul class="chon-pdf" id="ds-pdf"><li class="trong">Đang tải danh sách PDF…</li></ul>
+    <label class="them-file">
+      <span id="them-chu">Thêm PDF từ điện thoại</span>
+      <input type="file" id="file-may" accept="application/pdf" multiple class="an">
+    </label>
+    <p class="tom-tat" id="tom-tat">Chưa chọn file nào.</p>
+    <div class="nut-phu">
+      <button type="button" class="vien" id="huy-noi">Đóng</button>
+      <button type="button" class="dac" id="nut-noi" disabled>Nối file</button>
+    </div>
+  </section>
+
+  <section class="phieu an" id="can-nang" aria-labelledby="tieu-de-can">
+    <p class="dau" id="tieu-de-can">Nhập cân nặng từ ảnh</p>
+    <p class="nhan" id="nhan-file-can">Ảnh này là danh sách của file</p>
+    <div class="chips seg" id="chips-file-can" role="group" aria-labelledby="nhan-file-can" style="margin-bottom:12px"></div>
+    <p class="nhan" id="can-tab">Ghi vào cột M của tab đang chọn.</p>
+    <label class="chon-anh">
+      <b>Chụp hoặc chọn ảnh danh sách</b>
+      <span>Có thể chọn nhiều ảnh một lần</span>
+      <input type="file" id="anh-can" accept="image/*" multiple class="an">
+    </label>
+    <div class="anh-xem" id="anh-xem"></div>
+    <ul class="ds-can" id="ds-can"></ul>
+    <p class="tom-tat" id="tom-tat-can"></p>
+    <div class="nut-phu">
+      <button type="button" class="vien" id="huy-can">Đóng</button>
+      <button type="button" class="dac" id="nut-can" disabled>Đọc ảnh</button>
+    </div>
+  </section>
+
+  <section class="phieu an" id="gui-zalo" aria-labelledby="tieu-de-zalo">
+    <p class="dau" id="tieu-de-zalo">Gửi file</p>
+    <p class="nhan">Chạm để chọn file (chọn được nhiều file), rồi chọn cách gửi.</p>
+    <ul class="chon-pdf" id="ds-zalo"><li class="trong">Đang tải danh sách file…</li></ul>
+    <p class="tom-tat" id="tom-tat-zalo">Chưa chọn file nào.</p>
+
+    <p class="nhan" id="nhan-cach-gui" style="margin-top:16px">Gửi qua</p>
+    <div class="chips seg" id="chips-cach-gui" role="group" aria-labelledby="nhan-cach-gui"></div>
+
+    <div class="khoi-tele an" id="khoi-tele">
+      <div id="tele-noi-dung"><p class="tom-tat">Đang tải thông tin Telegram…</p></div>
+      <div class="tele-quan-ly an" id="tele-quan-ly">
+        <p class="tom-tat" id="tele-huong-dan"></p>
+        <ul class="ds-tele" id="tele-ds-tim"></ul>
+        <button type="button" class="vien rong" id="tele-tim">Tìm người nhận mới</button>
+      </div>
+      <label class="tele-loi-nhan">
+        <span class="nhan">Lời nhắn kèm (không bắt buộc)</span>
+        <input type="text" id="tele-loi-nhan" maxlength="300" placeholder="Ví dụ: Đơn VNPost hôm nay">
+      </label>
+    </div>
+    <div class="du-phong an" id="du-phong-zalo" role="status">
+      <p class="ly-do" id="ly-do-zalo"></p>
+      <ol>
+        <li>Bấm <b>Mở Drive</b>, trong ứng dụng Google Drive bấm ⋮ rồi chọn <b>Gửi bản sao</b>, chọn Zalo.</li>
+        <li>Hoặc bấm <b>Tải về</b>, sau đó trong khung chat Zalo chọn gửi tệp và chọn file vừa tải.</li>
+      </ol>
+      <ul class="ds-du-phong" id="ds-du-phong"></ul>
+    </div>
+    <p class="tom-tat" id="tt-gui" role="status"></p>
+    <div class="nut-phu">
+      <button type="button" class="vien" id="huy-zalo">Đóng</button>
+      <button type="button" class="zalo" id="nut-zalo" disabled>Gửi qua Zalo</button>
+    </div>
+  </section>
+
+  <h2 class="muc">Công cụ</h2>
+  <div class="luoi">
+    <a class="o-cong-cu an" id="mo-output" href="#" target="_blank" rel="noopener">
+      <span class="bt-cc bt-muc" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      </span>
+      <span><b>Thư mục Output</b><span class="phu">Mở trên Drive</span></span>
+    </a>
+    <button type="button" class="o-cong-cu" id="mo-can">
+      <span class="bt-cc bt-vang" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      </span>
+      <span><b>Nhập cân nặng</b><span class="phu">Chụp ảnh danh sách</span></span>
+    </button>
+    <button type="button" class="o-cong-cu" id="mo-noi">
+      <span class="bt-cc bt-do" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8l4 4v10"/><path d="M4 7h10l2 2v12H4z"/></svg>
+      </span>
+      <span><b>Nối PDF</b><span class="phu">Ghép nhiều file</span></span>
+    </button>
+    <button type="button" class="o-cong-cu" id="mo-gop">
+      <span class="bt-cc bt-xanh" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M10 4v16"/></svg>
+      </span>
+      <span><b>Gộp Excel</b><span class="phu">Nối danh sách đơn</span></span>
+    </button>
+    <button type="button" class="o-cong-cu" id="mo-zalo">
+      <span class="bt-cc bt-zalo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+      </span>
+      <span><b>Gửi file</b><span class="phu">Zalo hoặc Telegram</span></span>
+    </button>
+  </div>
+
+  <h2 class="muc">Đã xuất gần đây</h2>
+  <ul class="lich-su" id="lich-su">
+    <li class="trong">Đang tải…</li>
+  </ul>
+
+  <button type="button" class="link-hd" id="mo-hd-duoi">Hướng dẫn sử dụng app</button>
+  </div>
+</main>
+
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbyNwH9W1wUN-BewpiadA-nhb9go1nmX0fbuMiyFYACwE0LtfKQvWKJxqEqurRS30uLN5A/exec';
-const out = document.getElementById('out');
+  var tabDangChon = '';
+  var lichSu = [];
+  var dsPdfDrive = [];
+  var chon = [];          // các file đã chọn để nối, theo thứ tự
+  var fileMay = [];       // các file thêm từ điện thoại
+  var dangBan = false;
 
-async function callApi(action, payload = {}) {
-  let key = localStorage.getItem('key');
-  if (!key) { key = prompt('Nhập mật khẩu'); localStorage.setItem('key', key); }
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ key, action, ...payload })
-  });
-  const r = await res.json();
-  if (!r.ok) {
-    if (r.error === 'Sai mật khẩu') localStorage.removeItem('key');
-    throw new Error(r.error);
+  function el(id) { return document.getElementById(id); }
+  function hien(id, co) { el(id).classList.toggle('an', !co); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
   }
-  return r.data;
-}
+  function goi(ham, a, b, c) {
+    return new Promise(function (ok, loi) {
+      google.script.run.withSuccessHandler(ok).withFailureHandler(loi)[ham](a, b, c);
+    });
+  }
 
-document.getElementById('btn').onclick = async () => {
-  out.textContent = 'Đang gọi...';
-  try { out.textContent = 'Kết nối OK: ' + await callApi('ping'); }
-  catch (e) { out.textContent = 'Lỗi: ' + e.message; }
-};
+  function hienNgay() {
+    var s = new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' });
+    el('ngay').textContent = s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  /* ---------- Chọn tab ---------- */
+  /* ---------- Chọn nguồn và mẫu Excel (nhớ lựa chọn trên máy này) ---------- */
+  // tuDong: xuất Excel theo cột Q (VNPOST → HANH_NGUYEN, AMT → AN MAITRI, VIETTEL → Viettel)
+  var tuyChon = { chon: 0, mau: 0, nguon: [0], dvvc: '', tuDong: true };  // chon: số thứ tự nút nguồn; nút cuối = gộp tất cả
+  var mauDvvc = [];                                        // đơn vị vận chuyển gắn với từng mẫu
+  var dsTenNguon = ['DS Lẻ'];
+  var DS_DVVC = ['', 'VNPOST', 'VIETTEL', 'AMT'];            // '' = Tất cả (theo cột SHIP, cột Q)
+  var NHAN_DVVC = ['Tất cả', 'VNPOST', 'VIETTEL', 'AMT'];
+  try {
+    var luu = JSON.parse(localStorage.getItem('xuatDonTuyChon') || 'null');
+    if (luu) tuyChon = { chon: +luu.chon || 0, mau: +luu.mau || 0, nguon: [0],
+      dvvc: DS_DVVC.indexOf(luu.dvvc) >= 0 ? luu.dvvc : '', tuDong: luu.tuDong !== false };
+  } catch (e) { /* trình duyệt không cho lưu: dùng mặc định */ }
+  function coTuDong() { return mauDvvc.some(function (x) { return x; }); }
+  function laTuDong() { return tuyChon.tuDong && coTuDong(); }
+  function chuNutExcel() {
+    if (laTuDong()) return laGop() ? 'Xuất Excel gộp theo cột Q' : 'Xuất Excel theo cột Q';
+    return laGop() ? 'Xuất Excel gộp' : 'Xuất file Excel';
+  }
+  function chuNutPdf() { return (laGop() ? 'Xuất PDF gộp' : 'Xuất PDF') + (tuyChon.dvvc ? ' ' + tuyChon.dvvc : ''); }
+  function laGop() { return tuyChon.nguon.length > 1; }
+  function datNguon(i) {
+    tuyChon.chon = i;
+    tuyChon.nguon = i < dsTenNguon.length ? [i] : dsTenNguon.map(function (x, j) { return j; });
+  }
+  function luuTuyChon() {
+    try { localStorage.setItem('xuatDonTuyChon', JSON.stringify(tuyChon)); } catch (e) { /* bỏ qua */ }
+  }
+
+  function veNhomChip(idHop, nhan, dangChon, khiChon) {
+    var hop = el(idHop);
+    hop.innerHTML = '';
+    nhan.forEach(function (ten, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = ten;
+      b.setAttribute('aria-pressed', i === dangChon ? 'true' : 'false');
+      b.onclick = function () {
+        khiChon(i);
+        Array.prototype.forEach.call(hop.children, function (c, j) {
+          c.setAttribute('aria-pressed', j === i ? 'true' : 'false');
+        });
+        capNhatChuNut();
+      };
+      hop.appendChild(b);
+    });
+  }
+
+  function hienTuyChon(dsNguon, dsMau, dsMauDvvc) {
+    dsTenNguon = dsNguon;
+    mauDvvc = dsMauDvvc || [];
+    if (tuyChon.mau >= dsMau.length) tuyChon.mau = 0;
+    var nhanNguon = dsNguon.slice();
+    if (dsNguon.length > 1) nhanNguon.push(dsNguon.length === 2 ? 'Cả 2 file' : 'Tất cả');
+    if (tuyChon.chon >= nhanNguon.length) tuyChon.chon = 0;
+    datNguon(tuyChon.chon);
+    veNhomChip('chips-nguon', nhanNguon, tuyChon.chon, function (i) {
+      datNguon(i); luuTuyChon();
+    });
+    // Nút đầu "Theo cột Q": mỗi đơn tự vào đúng mẫu theo đơn vị vận chuyển ở cột Q
+    var nhanMau = coTuDong() ? ['Theo cột Q'].concat(dsMau) : dsMau;
+    var lech = coTuDong() ? 1 : 0;
+    veNhomChip('chips-mau', nhanMau, laTuDong() ? 0 : tuyChon.mau + lech, function (i) {
+      tuyChon.tuDong = lech === 1 && i === 0;
+      if (!tuyChon.tuDong) tuyChon.mau = i - lech;
+      luuTuyChon();
+    });
+    veNhomChip('chips-dvvc', NHAN_DVVC, DS_DVVC.indexOf(tuyChon.dvvc), function (i) {
+      tuyChon.dvvc = DS_DVVC[i]; luuTuyChon();
+    });
+    capNhatChuNut();
+  }
+
+  function capNhatChuNut() {
+    if (dangBan) return;
+    el('chu-nut').textContent = chuNutExcel();
+    el('chu-pdf').textContent = chuNutPdf();
+  }
+
+  function hienTabs(ds, macDinh) {
+    var hop = el('chips');
+    if (!ds.length) {
+      hop.innerHTML = '<span class="cho">Không có tab nào bắt đầu bằng "DS T".</span>';
+      return;
+    }
+    tabDangChon = macDinh || ds[0];
+    hop.innerHTML = '';
+    ds.forEach(function (ten) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = ten;
+      b.setAttribute('aria-pressed', ten === tabDangChon ? 'true' : 'false');
+      b.onclick = function () {
+        tabDangChon = ten;
+        demSanSang();
+        Array.prototype.forEach.call(hop.children, function (c) {
+          c.setAttribute('aria-pressed', c.textContent === ten ? 'true' : 'false');
+        });
+      };
+      hop.appendChild(b);
+    });
+    el('nut-xuat').disabled = false;
+    el('nut-pdf').disabled = false;
+  }
+
+  /* ---------- Lịch sử và đổi tên ---------- */
+  function hienLichSu(ds) {
+    if (ds) lichSu = ds;
+    var ul = el('lich-su');
+    if (!lichSu.length) {
+      ul.innerHTML = '<li class="trong">Chưa có file nào. Bấm Xuất file Excel hoặc Xuất PDF để tạo file đầu tiên.</li>';
+      return;
+    }
+    ul.innerHTML = lichSu.map(function (f, i) {
+      var laPdf = f.loai === 'PDF';
+      return '<li><a href="' + esc(f.url) + '" target="_blank" rel="noopener">' +
+        '<span class="bt-file ' + (laPdf ? 'pdf' : 'xls') + '">' + (laPdf ? 'PDF' : 'XLS') + '</span>' +
+        '<span class="chu"><span class="ten">' + esc(f.ten) + '</span>' +
+        '<span class="luc">' + esc(f.luc) + '</span></span></a>' +
+        '<button type="button" class="doi-ten" data-i="' + i + '">Đổi tên</button></li>';
+    }).join('');
+    Array.prototype.forEach.call(ul.querySelectorAll('.doi-ten'), function (b) {
+      b.onclick = function () { moSuaTen(b.parentNode, lichSu[+b.getAttribute('data-i')]); };
+    });
+  }
+
+  function moSuaTen(li, f) {
+    var m = f.ten.match(/\.(xlsx|pdf)$/i);
+    var duoi = m ? m[0] : '';
+    var goc = duoi ? f.ten.slice(0, -duoi.length) : f.ten;
+    li.innerHTML =
+      '<div class="sua-ten">' +
+        '<p class="nhan">Tên mới</p>' +
+        '<input type="text" value="' + esc(goc) + '" aria-label="Tên mới">' +
+        (duoi ? '<p class="duoi">Đuôi ' + esc(duoi) + ' được giữ nguyên.</p>' : '') +
+        '<div class="nut-phu"><button type="button" class="vien">Hủy</button>' +
+        '<button type="button" class="dac">Lưu tên</button></div>' +
+      '</div>';
+    var o = li.querySelector('input');
+    var nut = li.querySelectorAll('button');
+    o.focus(); o.select();
+    nut[0].onclick = function () { hienLichSu(); };
+    nut[1].onclick = function () {
+      nut[1].disabled = true;
+      nut[1].textContent = 'Đang lưu…';
+      goi('doiTenFile', f.id, o.value)
+        .then(function (ds) { hienLichSu(ds); })
+        .catch(function (e) { baoLoi(e); hienLichSu(); });
+    };
+  }
+
+  /* ---------- Xuất Excel / PDF ---------- */
+  function datNut(loai, dangChay) {
+    dangBan = dangChay;
+    var nutX = el('nut-xuat'), nutP = el('nut-pdf');
+    nutX.disabled = dangChay;
+    nutP.disabled = dangChay;
+    nutX.classList.toggle('dang-chay', dangChay && loai === 'excel');
+    nutP.classList.toggle('dang-chay', dangChay && loai === 'pdf');
+    el('chu-nut').textContent = (dangChay && loai === 'excel') ? 'Đang xuất ' + tabDangChon + '…' : chuNutExcel();
+    el('chu-pdf').textContent = (dangChay && loai === 'pdf') ? 'Đang tạo PDF…' : chuNutPdf();
+  }
+
+  function baoLoi(err) {
+    datNut('', false);
+    var thongDiep = (err && err.message) ? err.message : String(err);
+    // Lỗi quyền Drive: thường do bản triển khai đang chạy bằng tài khoản người mở app thay vì tài khoản chủ app
+    if (/DriveApp|Drive/i.test(thongDiep) && /từ chối|denied|permission|quyền/i.test(thongDiep)) {
+      thongDiep += ' Tài khoản đang mở app không có quyền ghi vào thư mục Output. Chủ app vào Triển khai → Quản lý bản triển khai,'
+        + ' đặt "Thực thi với tư cách: Tôi" rồi triển khai phiên bản mới.';
+    }
+    el('loi-noi-dung').textContent = thongDiep;
+    hien('loi', true);
+    el('loi').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function hienKetQua(kq) {
+    datNut('', false);
+    el('kq-nhieu').innerHTML = '';
+    hien('kq-nhieu', kq.loai === 'tuDong');
+    if (kq.loai === 'tuDong') {
+      el('kq-dau').textContent = 'Đã xuất Excel theo cột Q';
+      el('kq-so').textContent = kq.soDon;
+      el('kq-don-vi').textContent = 'đơn';
+      el('kq-phu').textContent = 'Mỗi đơn vào đúng mẫu theo đơn vị vận chuyển ở cột Q (ô trống là VNPOST).';
+      kq.ds.forEach(function (x) {
+        var li = document.createElement('li');
+        var dau = '<span class="kq-dv">' + esc(x.dvvc || '') + '</span><span class="kq-mau">' + esc(x.mau || '') + '</span>';
+        if (x.loi) {
+          li.innerHTML = dau + '<span class="kq-loi">Lỗi: ' + esc(x.loi) + '</span>';
+        } else if (x.boQua) {
+          li.innerHTML = dau + '<span class="kq-trong">Không có đơn, bỏ qua</span>';
+        } else {
+          li.innerHTML = dau + '<span class="kq-chi"><b>' + x.soDon + ' đơn</b> (' + x.soDong + ' dòng)'
+            + (x.tabMoi ? ', tab ' + esc(x.tabMoi) : '') + '<br>' + esc(x.tenFile) + '</span>'
+            + '<span class="kq-nut"><a class="vien" href="' + esc(x.link) + '" target="_blank" rel="noopener">Mở</a>'
+            + '<a class="dac" href="' + esc(x.linkTai) + '" target="_blank" rel="noopener">Tải</a></span>';
+        }
+        el('kq-nhieu').appendChild(li);
+      });
+      kq.tenFile = '';
+    } else if (kq.loai === 'pdf') {
+      el('kq-dau').textContent = 'Đã xuất PDF danh sách khách hàng' + (kq.dvvc ? ' ' + kq.dvvc : '');
+      el('kq-so').textContent = kq.soDong;
+      el('kq-don-vi').textContent = 'dòng';
+      var tuNguon = (kq.chiTiet || []).length > 1
+        ? 'gồm ' + kq.chiTiet.map(function (c) { return c.ten + ' ' + c.soDong + ' dòng (' + c.tab + ')'; }).join(', ')
+        : 'từ tab ' + kq.tab + ((kq.chiTiet || [])[0] ? ' (' + kq.chiTiet[0].ten + ')' : '');
+      el('kq-phu').textContent = (kq.dvvc ? 'Đơn ' + kq.dvvc + ' (cột Q), ' : 'Các dòng đang hiển thị, ') + 'cột A đến N, ' + tuNguon + '.'
+        + (kq.canhBaoLoc ? ' Lưu ý: cột Q trên sheet đang có bộ lọc, có thể làm thiếu đơn. Nên bỏ lọc cột Q.' : '')
+        + (kq.uuTien || []).map(function (u) {
+          return ' Chân trang ' + u.ten + ': ƯU TIÊN ĐƠN SỐ ' + u.so.join(', ') + '.';
+        }).join('');
+    } else if (kq.loai === 'can') {
+      el('kq-dau').textContent = 'Đã ghi cân nặng';
+      el('kq-so').textContent = kq.soDong;
+      el('kq-don-vi').textContent = 'dòng';
+      el('kq-phu').textContent = 'Cột M, tab ' + kq.tab + '. Cột O ghi "đã trả hàng", cột P ghi ngày ' + kq.ngay + '.';
+    } else if (kq.loai === 'gop') {
+      el('kq-dau').textContent = 'Đã gộp file Excel';
+      el('kq-so').textContent = kq.soDong;
+      el('kq-don-vi').textContent = 'đơn';
+      el('kq-phu').textContent = 'Gộp từ ' + kq.soFile + ' file vào 1 sheet, STT từ 1 đến ' + kq.soDong;
+    } else if (kq.loai === 'noi') {
+      el('kq-dau').textContent = 'Đã nối file PDF';
+      el('kq-so').textContent = kq.soTrang;
+      el('kq-don-vi').textContent = 'trang';
+      el('kq-phu').textContent = 'Nối từ ' + kq.soFile + ' file';
+    } else {
+      el('kq-dau').textContent = 'Đã xuất file Excel';
+      el('kq-so').textContent = kq.soDon;
+      el('kq-don-vi').textContent = 'đơn';
+      var nguon = (kq.chiTiet || []).length > 1
+        ? 'gồm ' + kq.chiTiet.map(function (c) { return c.ten + ' ' + c.soDon + ' đơn (' + c.tab + ')'; }).join(', ')
+        : 'từ tab ' + kq.tab;
+      el('kq-phu').textContent = kq.soDong + ' dòng sau khi tách, ' + nguon + '. Mẫu ' + (kq.mau || '') + '.'
+        + (kq.tabMoi ? ' Đã thêm tab ' + kq.tabMoi + ' vào file có sẵn.' : '');
+    }
+    hien('kq-file', !!kq.tenFile);
+    idFileKetQua = '';
+    if (kq.tenFile) {
+      el('kq-ten').textContent = kq.tenFile;
+      el('kq-mo').href = kq.link;
+      el('kq-tai').href = kq.linkTai;
+      var m = String(kq.linkTai || '').match(/[?&]id=([^&]+)/);
+      idFileKetQua = m ? m[1] : '';
+    }
+    hien('kq-zalo', !!idFileKetQua && !kq.laGoogleSheet);
+    hien('ket-qua', true);
+    if (kq.lichSu) hienLichSu(kq.lichSu);
+    el('ket-qua').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function chay(loai) {
+    hien('loi', false);
+    hien('ket-qua', false);
+    hien('noi-pdf', false);
+    hien('can-nang', false);
+    hien('gui-zalo', false);
+    datNut(loai, true);
+    if (loai === 'excel' && laTuDong()) { xuatTheoCotQ().then(hienKetQua).catch(baoLoi); return; }
+    goi(loai === 'pdf' ? 'xuatPdfTuWeb' : 'xuatTuWeb', tabDangChon, tuyChon)
+      .then(function (kq) { return kq.canDongDau ? themDongUuTien(kq) : kq; })
+      .then(hienKetQua)
+      .catch(baoLoi);
+  }
+
+  /* Xuất lần lượt từng mẫu có gắn đơn vị vận chuyển; mẫu nào không có đơn thì bỏ qua */
+  async function xuatTheoCotQ() {
+    var dsMauChay = [];
+    mauDvvc.forEach(function (d, i) { if (d) dsMauChay.push(i); });
+    var ketQua = [], lichSu = null;
+    for (var k = 0; k < dsMauChay.length; k++) {
+      var i = dsMauChay[k];
+      el('chu-nut').textContent = 'Đang xuất ' + mauDvvc[i] + ' (' + (k + 1) + '/' + dsMauChay.length + ')…';
+      try {
+        var kq = await goi('xuatTuWeb', tabDangChon,
+          { chon: tuyChon.chon, nguon: tuyChon.nguon, mau: i, locDvvc: true });
+        if (kq.lichSu) lichSu = kq.lichSu;
+        ketQua.push(kq);
+      } catch (e) {
+        ketQua.push({ loi: (e && e.message) ? e.message : String(e), mau: (el('chips-mau').children[i + 1] || {}).textContent || '', dvvc: mauDvvc[i] });
+      }
+    }
+    var tongDon = ketQua.reduce(function (t, x) { return t + (x.soDon || 0); }, 0);
+    if (!tongDon && !ketQua.some(function (x) { return x.loi; })) {
+      throw new Error('Không có đơn nào đang hiển thị và có cân nặng để xuất.');
+    }
+    return { loai: 'tuDong', ds: ketQua, soDon: tongDon, lichSu: lichSu };
+  }
+
+  /* Vẽ dòng chữ thành ảnh PNG nét (chữ tiếng Việt hiển thị bằng phông của máy, không cần tải phông) */
+  function anhDongChu(chu, coChu) {
+    var TL = 4;                                   // 4 điểm ảnh cho 1 pt khi in
+    var phong = 'bold ' + (coChu * TL) + 'px Arial, "Helvetica Neue", Roboto, "Segoe UI", sans-serif';
+    var c = document.createElement('canvas');
+    var g = c.getContext('2d');
+    g.font = phong;
+    c.width = Math.ceil(g.measureText(chu).width) + 2 * TL;
+    c.height = Math.ceil(coChu * TL * 1.35);
+    g = c.getContext('2d');
+    g.font = phong;
+    g.fillStyle = '#000';
+    g.textBaseline = 'middle';
+    g.fillText(chu, TL, c.height / 2);
+    return { png: c.toDataURL('image/png'), rong: c.width / TL, cao: c.height / TL };
+  }
+
+  /* Ghép các phần PDF, thêm dòng "ƯU TIÊN ĐƠN SỐ : ..." ở giữa chân mọi trang của danh sách có đơn ưu tiên */
+  async function themDongUuTien(kq) {
+    el('chu-pdf').textContent = 'Đang thêm dòng ưu tiên…';
+    await napPdfLib();
+    var moi = await PDFLib.PDFDocument.create();
+    for (var i = 0; i < kq.phan.length; i++) {
+      var p = kq.phan[i];
+      var goc = await PDFLib.PDFDocument.load(p.b64);
+      var trang = await moi.copyPages(goc, goc.getPageIndices());
+      var anh = null, kt = null;
+      if (p.chu) {
+        kt = anhDongChu(p.chu, 13);
+        anh = await moi.embedPng(kt.png);
+      }
+      trang.forEach(function (t) {
+        moi.addPage(t);
+        if (!anh) return;
+        var co = t.getSize();
+        var rong = kt.rong, cao = kt.cao;
+        var toiDa = co.width - 2 * 110;           // chừa chỗ số trang bên phải
+        if (rong > toiDa) { cao = cao * toiDa / rong; rong = toiDa; }
+        t.drawImage(anh, { x: (co.width - rong) / 2, y: 9, width: rong, height: cao });
+      });
+    }
+    el('chu-pdf').textContent = 'Đang lưu vào Drive…';
+    var b64 = await moi.saveAsBase64();
+    return goi('luuPdfUuTien', {
+      b64: b64, tenFile: kq.tenFile, soDong: kq.soDong, tab: kq.tab, chiTiet: kq.chiTiet, uuTien: kq.uuTien,
+      dvvc: kq.dvvc, canhBaoLoc: kq.canhBaoLoc
+    });
+  }
+
+  /* ---------- Nối PDF / Gộp Excel (dùng chung một bảng chọn file) ---------- */
+  var cheDo = 'pdf';
+  var CHE_DO = {
+    pdf: { tieuDe: 'Nối file PDF', dongTu: 'nối', loai: 'PDF', chap: 'application/pdf', ham: 'layDanhSachPdf',
+      goiY: 'Chạm vào file theo đúng thứ tự muốn nối. Số trong vòng tròn là thứ tự ghép, file số 1 đứng đầu.' },
+    excel: { tieuDe: 'Gộp file Excel', dongTu: 'gộp', loai: 'Excel',
+      chap: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel',
+      ham: 'layDanhSachExcel',
+      goiY: 'Chạm vào file theo thứ tự muốn gộp. Đơn của file số 1 đứng đầu, các file sau nối tiếp bên dưới, STT đánh lại liên tục. Các file phải cùng mẫu cột.' }
+  };
+
+  function moGhep(kieu) {
+    cheDo = kieu;
+    var c = CHE_DO[kieu];
+    hien('loi', false);
+    hien('ket-qua', false);
+    hien('can-nang', false);
+    hien('gui-zalo', false);
+    hien('noi-pdf', true);
+    el('tieu-de-noi').textContent = c.tieuDe;
+    el('goi-y-ghep').textContent = c.goiY;
+    el('them-chu').textContent = 'Thêm ' + c.loai + ' từ điện thoại';
+    el('file-may').setAttribute('accept', c.chap);
+    chon = []; fileMay = []; dsPdfDrive = [];
+    el('ds-pdf').innerHTML = '<li class="trong">Đang tải danh sách file ' + c.loai + '…</li>';
+    veDsPdf(true);
+    el('noi-pdf').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    goi(c.ham)
+      .then(function (ds) { if (cheDo === kieu) { dsPdfDrive = ds; veDsPdf(); } })
+      .catch(baoLoi);
+  }
+  function moNoiPdf() { moGhep('pdf'); }
+
+  function khoa(m) { return m.nguon + ':' + m.ma; }
+
+  function veDsPdf(chiTomTat) {
+    var c = CHE_DO[cheDo];
+    var muc = fileMay.map(function (f, i) {
+      return { nguon: 'may', ma: 'm' + i, ten: f.name, phu: 'Từ điện thoại', file: f };
+    }).concat(dsPdfDrive.map(function (f) {
+      return { nguon: 'drive', ma: f.id, ten: f.ten, phu: f.luc };
+    }));
+    var ul = el('ds-pdf');
+    if (chiTomTat) {
+      // giữ dòng "Đang tải…"
+    } else if (!muc.length) {
+      ul.innerHTML = '<li class="trong">Thư mục chưa có file ' + c.loai + '. Thêm file từ điện thoại bên dưới.</li>';
+    } else {
+      ul.innerHTML = '';
+      muc.forEach(function (m) {
+        var vt = chon.map(khoa).indexOf(khoa(m));
+        var li = document.createElement('li');
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', vt >= 0 ? 'true' : 'false');
+        b.innerHTML = '<span class="thu-tu">' + (vt >= 0 ? vt + 1 : '') + '</span>' +
+          '<span><span class="ten" style="display:block">' + esc(m.ten) + '</span>' +
+          '<span class="phu">' + esc(m.phu) + '</span></span>';
+        b.onclick = function () {
+          var i = chon.map(khoa).indexOf(khoa(m));
+          if (i >= 0) chon.splice(i, 1); else chon.push(m);
+          veDsPdf();
+        };
+        li.appendChild(b);
+        ul.appendChild(li);
+      });
+    }
+    var n = chon.length;
+    el('tom-tat').textContent = n === 0 ? 'Chưa chọn file nào.' :
+      (n === 1 ? 'Đã chọn 1 file. Chọn thêm ít nhất 1 file nữa.' : 'Sẽ ' + c.dongTu + ' ' + n + ' file theo thứ tự đã chọn.');
+    el('nut-noi').disabled = n < 2 || dangBan;
+    var dt = c.dongTu.charAt(0).toUpperCase() + c.dongTu.slice(1);
+    el('nut-noi').textContent = n >= 2 ? dt + ' ' + n + ' file' : dt + ' file';
+  }
+
+  function docBase64(f) {
+    return new Promise(function (ok, loi) {
+      var r = new FileReader();
+      r.onload = function () { ok(String(r.result).split(',')[1]); };
+      r.onerror = function () { loi(new Error('Không đọc được file ' + f.name + '.')); };
+      r.readAsDataURL(f);
+    });
+  }
+
+  async function gopExcelWeb() {
+    var nut = el('nut-noi');
+    dangBan = true;
+    nut.disabled = true;
+    try {
+      var ds = [];
+      for (var i = 0; i < chon.length; i++) {
+        var m = chon[i];
+        if (m.nguon === 'may') {
+          nut.textContent = 'Đang tải file ' + (i + 1) + '/' + chon.length + '…';
+          ds.push({ nguon: 'may', ten: m.ten, b64: await docBase64(m.file) });
+        } else {
+          ds.push({ nguon: 'drive', id: m.ma, ten: m.ten });
+        }
+      }
+      nut.textContent = 'Đang gộp ' + chon.length + ' file…';
+      var kq = await goi('gopExcel', ds);
+      dangBan = false;
+      hien('noi-pdf', false);
+      hienKetQua(kq);
+    } catch (e) {
+      dangBan = false;
+      veDsPdf();
+      baoLoi(e);
+    }
+  }
+
+  function napPdfLib() {
+    return new Promise(function (ok, loi) {
+      if (window.PDFLib) return ok();
+      var s = document.createElement('script');
+      s.src = 'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+      s.onload = function () { ok(); };
+      s.onerror = function () { loi(new Error('Không tải được bộ nối PDF. Kiểm tra kết nối mạng rồi thử lại.')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function docFileMay(f) {
+    return new Promise(function (ok, loi) {
+      var r = new FileReader();
+      r.onload = function () { ok(new Uint8Array(r.result)); };
+      r.onerror = function () { loi(new Error('Không đọc được file ' + f.name + '.')); };
+      r.readAsArrayBuffer(f);
+    });
+  }
+
+  async function noiPdf() {
+    var nut = el('nut-noi');
+    dangBan = true;
+    nut.disabled = true;
+    try {
+      nut.textContent = 'Đang chuẩn bị…';
+      await napPdfLib();
+      var moi = await PDFLib.PDFDocument.create();
+      for (var i = 0; i < chon.length; i++) {
+        var m = chon[i];
+        nut.textContent = 'Đang nối ' + (i + 1) + '/' + chon.length + '…';
+        var duLieu = m.nguon === 'may' ? await docFileMay(m.file) : await goi('layNoiDungPdf', m.ma);
+        var goc;
+        try {
+          goc = await PDFLib.PDFDocument.load(duLieu, { ignoreEncryption: true });
+        } catch (e) {
+          throw new Error('File ' + m.ten + ' không mở được. File có thể bị hỏng hoặc có mật khẩu.');
+        }
+        var trang = await moi.copyPages(goc, goc.getPageIndices());
+        trang.forEach(function (t) { moi.addPage(t); });
+      }
+      nut.textContent = 'Đang lưu vào Drive…';
+      var b64 = await moi.saveAsBase64();
+      var kq = await goi('luuPdfGop', { b64: b64, soFile: chon.length, soTrang: moi.getPageCount() });
+      dangBan = false;
+      hien('noi-pdf', false);
+      hienKetQua(kq);
+    } catch (e) {
+      dangBan = false;
+      veDsPdf();
+      baoLoi(e);
+    }
+  }
+
+  el('file-may').onchange = function () {
+    var ds = Array.prototype.slice.call(this.files);
+    ds.forEach(function (f) {
+      fileMay.push(f);
+      chon.push({ nguon: 'may', ma: 'm' + (fileMay.length - 1), ten: f.name, phu: 'Từ điện thoại', file: f });
+    });
+    this.value = '';
+    veDsPdf();
+  };
+  /* ---------- Nhập cân nặng từ ảnh ---------- */
+  var anhCan = [];      // ảnh đã chọn
+  var dsCan = [];       // các dòng đọc được
+  var buocCan = 'chon'; // chon -> doc -> ghi
+  var fileCan = 0;      // số thứ tự file nguồn để ghi cân nặng
+
+  function capNhatNhanCan() {
+    el('can-tab').textContent = 'Ghi vào cột M (Trọng lượng) của tab ' + tabDangChon + ', file ' + dsTenNguon[fileCan]
+      + '. Cột O, P được ghi tự động.';
+  }
+
+  function moCanNang() {
+    hien('loi', false);
+    hien('ket-qua', false);
+    hien('noi-pdf', false);
+    hien('gui-zalo', false);
+    hien('can-nang', true);
+    anhCan = []; dsCan = []; buocCan = 'chon';
+    fileCan = tuyChon.nguon.length === 1 ? tuyChon.nguon[0] : 0;
+    veNhomChip('chips-file-can', dsTenNguon, fileCan, function (i) {
+      fileCan = i; dsCan = []; buocCan = 'chon'; capNhatNhanCan(); veDsCan();
+    });
+    capNhatNhanCan();
+    el('anh-xem').innerHTML = '';
+    veDsCan();
+    el('can-nang').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function thuNhoAnh(file) {
+    return new Promise(function (ok, loi) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        var k = Math.min(1, 2400 / Math.max(w, h));
+        var c = document.createElement('canvas');
+        c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        ok(c.toDataURL('image/jpeg', 0.88).split(',')[1]);
+      };
+      img.onerror = function () { loi(new Error('Không mở được ảnh ' + file.name + '.')); };
+      img.src = url;
+    });
+  }
+
+  function veDsCan() {
+    var ul = el('ds-can'), nut = el('nut-can');
+    if (buocCan === 'chon') {
+      ul.innerHTML = '';
+      el('tom-tat-can').textContent = anhCan.length ? 'Đã chọn ' + anhCan.length + ' ảnh.' : 'Chưa chọn ảnh nào.';
+      nut.textContent = 'Đọc ảnh';
+      nut.disabled = !anhCan.length;
+      return;
+    }
+    ul.innerHTML = '';
+    dsCan.forEach(function (x, i) {
+      var li = document.createElement('li');
+      var lop = x.khop === 'chac' && x.docChac ? 'chac' : (x.khop === 'khong' ? 'khong' : 'xem');
+      var trangThai = x.khop === 'khong' ? x.lyDo :
+        (x.lyDo + (x.dong ? ', dòng ' + x.dong : '') + (x.docChac ? '' : '. Chữ viết chưa chắc: ' + (x.ghiChu || 'cần xem lại')));
+      li.innerHTML =
+        '<input type="checkbox" aria-label="Ghi dòng này"' + (x.chon ? ' checked' : '') + (x.dong ? '' : ' disabled') + '>' +
+        '<div>' +
+          '<div class="dong-1">STT ' + esc(x.stt) + ', ' + esc(x.ten) + '</div>' +
+          '<div class="dong-2">SĐT ' + esc(x.sdt || 'không rõ') +
+            (x.tenSheet && !tenGiong(x.tenSheet, x.ten) ? '. Trong sheet: ' + esc(x.tenSheet) : '') + '</div>' +
+          '<div class="nhap-kg">Viết tay: <b>' + esc(x.chuViet) + '</b>, điền ' +
+            '<input type="text" inputmode="decimal" value="' + esc(String(x.kg).replace('.', ',')) + '" aria-label="Cân nặng kg"> kg</div>' +
+          (x.canHienTai ? '<div class="dong-2">Cột M đang có: ' + esc(x.canHienTai) + ', sẽ bị ghi đè</div>' : '') +
+          '<div class="trang-thai ' + lop + '">' + esc(trangThai) + '</div>' +
+        '</div>';
+      var cb = li.querySelector('input[type=checkbox]');
+      var o = li.querySelector('.nhap-kg input');
+      cb.onchange = function () { x.chon = cb.checked; capNhatNutGhi(); };
+      o.oninput = function () { x.kg = o.value.replace(',', '.'); };
+      ul.appendChild(li);
+    });
+    capNhatNutGhi();
+  }
+
+  function tenGiong(a, b) {
+    function c(s) { return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+    return c(a) === c(b);
+  }
+
+  function capNhatNutGhi() {
+    var n = dsCan.filter(function (x) { return x.chon && x.dong; }).length;
+    var xem = dsCan.filter(function (x) { return !(x.khop === 'chac' && x.docChac); }).length;
+    el('tom-tat-can').textContent = 'Đọc được ' + dsCan.length + ' dòng. ' +
+      (xem ? xem + ' dòng cần bạn xem lại (chưa được chọn sẵn). ' : '') +
+      'Kiểm tra số kg trước khi ghi.';
+    el('nut-can').textContent = n ? 'Ghi ' + n + ' dòng vào cột M' : 'Chọn dòng để ghi';
+    el('nut-can').disabled = !n;
+  }
+
+  async function bamNutCan() {
+    var nut = el('nut-can');
+    nut.disabled = true;
+    hien('loi', false);
+    try {
+      if (buocCan === 'chon') {
+        dsCan = [];
+        // Đọc tất cả ảnh cùng lúc: 4 ảnh mất thời gian gần bằng 1 ảnh
+        var tong = anhCan.length, xong = 0;
+        nut.textContent = tong > 1 ? 'Đang đọc ' + tong + ' ảnh cùng lúc…' : 'Đang đọc ảnh…';
+        var ketQua = await Promise.all(anhCan.map(function (f) {
+          return thuNhoAnh(f)
+            .then(function (b64) { return goi('docAnhCanNang', { b64: b64, mime: 'image/jpeg', tab: tabDangChon, file: fileCan }); })
+            .then(function (kq) {
+              xong++;
+              if (tong > 1) nut.textContent = 'Đã đọc ' + xong + '/' + tong + ' ảnh…';
+              return kq;
+            });
+        }));
+        // Gộp kết quả theo thứ tự ảnh, bỏ dòng trùng (ảnh chụp chồng lên nhau)
+        var daCo = {};
+        ketQua.forEach(function (kq) {
+          kq.forEach(function (x) {
+            var k = (x.dong ? x.dong : 'x' + x.stt + '|' + x.ten) + '|' + x.kg;
+            if (k && daCo[k]) return;
+            if (k) daCo[k] = true;
+            dsCan.push(x);
+          });
+        });
+        if (!dsCan.length) throw new Error('Không thấy dòng nào có cân nặng viết tay trong ảnh.');
+        buocCan = 'ghi';
+        veDsCan();
+      } else {
+        nut.textContent = 'Đang ghi…';
+        var chon = dsCan.filter(function (x) { return x.chon && x.dong; })
+          .map(function (x) { return { dong: x.dong, kg: x.kg }; });
+        var kqGhi = await new Promise(function (ok, loi) {
+          google.script.run.withSuccessHandler(ok).withFailureHandler(loi).ghiCanNang(tabDangChon, chon, fileCan);
+        });
+        hien('can-nang', false);
+        hienKetQua(kqGhi);
+        demSanSang();
+      }
+    } catch (e) {
+      if (buocCan === 'chon') veDsCan(); else capNhatNutGhi();
+      baoLoi(e);
+    }
+  }
+
+  el('anh-can').onchange = function () {
+    var moi = Array.prototype.slice.call(this.files);
+    anhCan = anhCan.concat(moi);
+    buocCan = 'chon'; dsCan = [];
+    moi.forEach(function (f) {
+      var img = document.createElement('img');
+      img.alt = f.name;
+      img.src = URL.createObjectURL(f);
+      el('anh-xem').appendChild(img);
+    });
+    this.value = '';
+    veDsCan();
+  };
+  el('mo-can').onclick = moCanNang;
+  el('huy-can').onclick = function () { hien('can-nang', false); };
+  el('nut-can').onclick = bamNutCan;
+  el('mo-noi').onclick = moNoiPdf;
+  el('huy-noi').onclick = function () { hien('noi-pdf', false); };
+  el('nut-noi').onclick = function () { if (cheDo === 'pdf') noiPdf(); else gopExcelWeb(); };
+  el('mo-gop').onclick = function () { moGhep('excel'); };
+  el('nut-xuat').onclick = function () { chay('excel'); };
+  el('nut-pdf').onclick = function () { chay('pdf'); };
+
+  /* ---------- Gửi file qua Zalo (bảng chia sẻ của điện thoại) ---------- */
+  var idFileKetQua = '';   // file vừa xuất, để gửi nhanh
+  var dsZalo = [];         // file Excel/PDF trong thư mục Output
+  var chonZalo = [];       // id file đã chọn, theo thứ tự chạm
+  var boNhoZalo = {};      // id -> { tt: 'tai' | 'xong' | 'loi', file, loi }
+
+  function coChiaSe() { return !!(navigator.share && navigator.canShare); }
+
+  function timZalo(id) {
+    for (var i = 0; i < dsZalo.length; i++) if (dsZalo[i].id === id) return dsZalo[i];
+    return null;
+  }
+
+  function moGuiZalo(idChonSan) {
+    hien('loi', false);
+    hien('ket-qua', false);
+    hien('noi-pdf', false);
+    hien('can-nang', false);
+    hien('du-phong-zalo', false);
+    hien('gui-zalo', true);
+    el('tt-gui').textContent = '';
+    veCachGui();
+    napTelegram();
+    dsZalo = []; boNhoZalo = {};
+    chonZalo = idChonSan ? [idChonSan] : [];
+    el('ds-zalo').innerHTML = '<li class="trong">Đang tải danh sách file…</li>';
+    veZalo(true);
+    el('gui-zalo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    goi('layDanhSachGuiZalo')
+      .then(function (ds) {
+        dsZalo = ds;
+        chonZalo = chonZalo.filter(timZalo);
+        veZalo();
+        chonZalo.forEach(taiTruocZalo);
+      })
+      .catch(baoLoi);
+  }
+
+  function b64SangFile(b64, ten, mime) {
+    var nhi = atob(b64);
+    var u = new Uint8Array(nhi.length);
+    for (var i = 0; i < nhi.length; i++) u[i] = nhi.charCodeAt(i);
+    return new File([u], ten, { type: mime });
+  }
+
+  /* Tải sẵn nội dung file ngay khi chọn, để lúc bấm Gửi mở được bảng chia sẻ ngay */
+  function taiTruocZalo(id) {
+    if (cachGui !== 'zalo' || !coChiaSe()) return;   // Telegram gửi từ máy chủ, không cần tải trước
+    if (boNhoZalo[id] && boNhoZalo[id].tt !== 'loi') return;
+    boNhoZalo[id] = { tt: 'tai' };
+    veZalo();
+    goi('layFileGuiZalo', id)
+      .then(function (kq) {
+        boNhoZalo[id] = { tt: 'xong', file: b64SangFile(kq.b64, kq.ten, kq.mime), b64: kq.b64, mime: kq.mime, ten: kq.ten };
+        veZalo();
+      })
+      .catch(function (e) { boNhoZalo[id] = { tt: 'loi', loi: (e && e.message) || String(e) }; veZalo(); });
+  }
+
+  function veZalo(chiTomTat) {
+    var ul = el('ds-zalo');
+    if (!chiTomTat) {
+      if (!dsZalo.length) {
+        ul.innerHTML = '<li class="trong">Thư mục Output chưa có file Excel hoặc PDF nào.</li>';
+      } else {
+        ul.innerHTML = '';
+        dsZalo.forEach(function (f) {
+          var daChon = chonZalo.indexOf(f.id) >= 0;
+          var bn = boNhoZalo[f.id];
+          var tt = '';
+          if (daChon && bn) {
+            tt = bn.tt === 'tai' ? '<span class="tt-tai"> · Đang chuẩn bị…</span>'
+              : bn.tt === 'xong' ? '<span class="tt-xong"> · Sẵn sàng</span>'
+              : '<span class="tt-loi"> · Lỗi: ' + esc(bn.loi) + '</span>';
+          }
+          var li = document.createElement('li');
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('aria-pressed', daChon ? 'true' : 'false');
+          b.innerHTML = '<span class="thu-tu">' + (daChon ? '✓' : '') + '</span>' +
+            '<span><span class="ten" style="display:block">' + esc(f.ten) + '</span>' +
+            '<span class="phu"><span class="the ' + (f.loai === 'PDF' ? 'pdf' : 'xls') + '">' +
+            (f.loai === 'PDF' ? 'PDF' : 'XLS') + '</span>' + esc(f.luc) + tt + '</span></span>';
+          b.onclick = function () {
+            var i = chonZalo.indexOf(f.id);
+            if (i >= 0) chonZalo.splice(i, 1);
+            else { chonZalo.push(f.id); taiTruocZalo(f.id); }
+            hien('du-phong-zalo', false);
+            veZalo();
+          };
+          li.appendChild(b);
+          ul.appendChild(li);
+        });
+      }
+    }
+    var n = chonZalo.length;
+    var nut = el('nut-zalo');
+    var laTele = cachGui === 'tele';
+    nut.className = laTele ? 'tele' : 'zalo';
+    if (laTele) {
+      var nn = timNguoiNhan(nguoiNhanChon);
+      el('tom-tat-zalo').textContent = n ? 'Đã chọn ' + n + ' file.' : 'Chưa chọn file nào.';
+      if (dangGuiTele) { nut.textContent = 'Đang gửi…'; nut.disabled = true; return; }
+      nut.textContent = !n ? 'Gửi qua Telegram' : (nn ? 'Gửi cho ' + nn.ten : 'Chọn người nhận');
+      nut.disabled = !n || !nn || !teleInfo || !teleInfo.coToken;
+      return;
+    }
+    var dangTai = chonZalo.filter(function (id) { return boNhoZalo[id] && boNhoZalo[id].tt === 'tai'; }).length;
+    if (!n) {
+      el('tom-tat-zalo').textContent = 'Chưa chọn file nào.';
+      nut.textContent = 'Gửi qua Zalo';
+    } else if (dangTai) {
+      el('tom-tat-zalo').textContent = 'Đã chọn ' + n + ' file, đang chuẩn bị ' + dangTai + ' file…';
+      nut.textContent = 'Đang chuẩn bị…';
+    } else {
+      el('tom-tat-zalo').textContent = 'Đã chọn ' + n + ' file.';
+      nut.textContent = 'Gửi ' + n + ' file qua Zalo';
+    }
+    nut.disabled = !n || dangTai > 0;
+  }
+
+  /* ---------- Gửi qua Telegram (bot gửi thẳng từ máy chủ Google, gửi được cả Excel) ---------- */
+  var cachGui = 'zalo';
+  try { cachGui = localStorage.getItem('xuatDonCachGui') === 'tele' ? 'tele' : 'zalo'; } catch (e) { /* bỏ qua */ }
+  var teleInfo = null;          // { coToken, tenBot, nguoiNhan: [{chatId, ten}] }
+  var nguoiNhanChon = '';
+  try { nguoiNhanChon = localStorage.getItem('xuatDonNguoiNhanTele') || ''; } catch (e) { /* bỏ qua */ }
+  var dangGuiTele = false;
+
+  function timNguoiNhan(chatId) {
+    var ds = (teleInfo && teleInfo.nguoiNhan) || [];
+    for (var i = 0; i < ds.length; i++) if (String(ds[i].chatId) === String(chatId)) return ds[i];
+    return null;
+  }
+
+  function veCachGui() {
+    veNhomChip('chips-cach-gui', ['Zalo', 'Telegram'], cachGui === 'tele' ? 1 : 0, function (i) {
+      cachGui = i === 1 ? 'tele' : 'zalo';
+      try { localStorage.setItem('xuatDonCachGui', cachGui); } catch (e) { /* bỏ qua */ }
+      hien('khoi-tele', cachGui === 'tele');
+      hien('du-phong-zalo', false);
+      el('tt-gui').textContent = '';
+      if (cachGui === 'zalo') chonZalo.forEach(taiTruocZalo);
+      veZalo();
+    });
+    hien('khoi-tele', cachGui === 'tele');
+  }
+
+  function napTelegram() {
+    el('tele-noi-dung').innerHTML = '<p class="tom-tat">Đang tải thông tin Telegram…</p>';
+    hien('tele-quan-ly', false);
+    goi('layThongTinTelegram')
+      .then(function (d) { teleInfo = d; veTelegram(); veZalo(true); })
+      .catch(function (e) {
+        el('tele-noi-dung').innerHTML = '<p class="tom-tat">Không tải được Telegram: ' + esc((e && e.message) || e) + '</p>';
+      });
+  }
+
+  function veTelegram() {
+    var hop = el('tele-noi-dung');
+    if (!teleInfo.coToken) {
+      hop.innerHTML = '<p class="tom-tat">Chưa cài bot Telegram. Mở <b>Hướng dẫn sử dụng</b>, mục "Gửi file qua Telegram" để cài (làm 1 lần).</p>';
+      return;
+    }
+    var ds = teleInfo.nguoiNhan || [];
+    if (!timNguoiNhan(nguoiNhanChon)) nguoiNhanChon = ds.length ? String(ds[0].chatId) : '';
+    hop.innerHTML = '<p class="nhan">Người nhận' + (teleInfo.tenBot ? ' (bot @' + esc(teleInfo.tenBot) + ')' : '') + '</p>' +
+      '<div class="chips" id="chips-nguoi-nhan"></div>';
+    var chips = el('chips-nguoi-nhan');
+    ds.forEach(function (x) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip';
+      b.textContent = x.ten;
+      b.setAttribute('aria-pressed', String(x.chatId) === nguoiNhanChon ? 'true' : 'false');
+      b.onclick = function () {
+        nguoiNhanChon = String(x.chatId);
+        try { localStorage.setItem('xuatDonNguoiNhanTele', nguoiNhanChon); } catch (e) { /* bỏ qua */ }
+        veTelegram(); veZalo(true);
+      };
+      chips.appendChild(b);
+    });
+    var them = document.createElement('button');
+    them.type = 'button'; them.className = 'chip chip-them';
+    them.textContent = ds.length ? '+ Thêm / bớt' : '+ Thêm người nhận';
+    them.onclick = function () { moQuanLyTele(); };
+    chips.appendChild(them);
+  }
+
+  function moQuanLyTele() {
+    hien('tele-quan-ly', true);
+    var bot = teleInfo.tenBot ? '@' + teleInfo.tenBot : 'bot của bạn';
+    el('tele-huong-dan').innerHTML = 'Người nhận mở Telegram, tìm <b>' + esc(bot) + '</b>, bấm <b>Start</b> (hoặc thêm bot vào nhóm và nhắn 1 tin trong nhóm), rồi bấm <b>Tìm người nhận mới</b>.';
+    veDsTele([]);
+  }
+
+  /* Danh sách: người nhận đã lưu (nút Bỏ) và người mới tìm thấy (nút Thêm) */
+  function veDsTele(timThay) {
+    var ul = el('tele-ds-tim');
+    var html = (teleInfo.nguoiNhan || []).map(function (x) {
+      return '<li><span class="ten-tele">' + esc(x.ten) + '<span class="loai-tele">Đã có trong danh sách</span></span>' +
+        '<button type="button" class="xoa" data-xoa="' + esc(x.chatId) + '">Bỏ</button></li>';
+    }).concat(timThay.filter(function (x) { return !x.daCo; }).map(function (x) {
+      return '<li><span class="ten-tele">' + esc(x.ten) + '<span class="loai-tele">' + esc(x.loai) + ' mới nhắn cho bot</span></span>' +
+        '<button type="button" data-them="' + esc(x.chatId) + '" data-ten="' + esc(x.ten) + '">Thêm</button></li>';
+    }));
+    ul.innerHTML = html.join('');
+    Array.prototype.forEach.call(ul.querySelectorAll('button'), function (b) {
+      b.onclick = function () {
+        b.disabled = true;
+        var p = b.getAttribute('data-xoa')
+          ? goi('xoaNguoiNhanTelegram', b.getAttribute('data-xoa'))
+          : goi('themNguoiNhanTelegram', { chatId: b.getAttribute('data-them'), ten: b.getAttribute('data-ten') });
+        p.then(function (ds) {
+          teleInfo.nguoiNhan = ds;
+          if (b.getAttribute('data-them')) nguoiNhanChon = b.getAttribute('data-them');
+          veTelegram(); veDsTele(timThay.map(function (x) {
+            return { chatId: x.chatId, ten: x.ten, loai: x.loai, daCo: !!timNguoiNhan(x.chatId) };
+          }));
+          veZalo(true);
+        }).catch(function (e) { b.disabled = false; baoLoi(e); });
+      };
+    });
+  }
+
+  el('tele-tim').onclick = function () {
+    var nut = el('tele-tim');
+    nut.disabled = true; nut.textContent = 'Đang tìm…';
+    goi('timChatTelegram')
+      .then(function (ds) {
+        nut.disabled = false; nut.textContent = 'Tìm lại';
+        veDsTele(ds);
+        if (!ds.filter(function (x) { return !x.daCo; }).length) {
+          el('tele-huong-dan').innerHTML += '<br><b>Chưa thấy người nhận mới.</b> Nhờ họ nhắn cho bot rồi bấm Tìm lại.';
+        }
+      })
+      .catch(function (e) { nut.disabled = false; nut.textContent = 'Tìm lại'; baoLoi(e); });
+  };
+
+  function guiTeleWeb() {
+    var nn = timNguoiNhan(nguoiNhanChon);
+    if (!nn || !chonZalo.length) return;
+    dangGuiTele = true; veZalo(true);
+    el('tt-gui').textContent = '';
+    goi('guiTelegram', chonZalo.slice(), nn.chatId, el('tele-loi-nhan').value.trim())
+      .then(function (kq) {
+        dangGuiTele = false; veZalo(true);
+        el('tt-gui').className = 'tom-tat tt-ok';
+        el('tt-gui').textContent = 'Đã gửi ' + kq.soFile + ' file cho ' + kq.nguoiNhan + ' qua Telegram.';
+      })
+      .catch(function (e) { dangGuiTele = false; veZalo(true); baoLoi(e); });
+  }
+
+  function hienDuPhong(ds, lyDo) {
+    el('ly-do-zalo').textContent = lyDo + ' Gửi theo cách sau:';
+    el('ds-du-phong').innerHTML = ds.map(function (f) {
+      return '<li><span class="ten">' + esc(f.ten) + '</span>' +
+        '<div class="nut-phu"><a class="vien" href="' + esc(f.url) + '" target="_blank" rel="noopener">Mở Drive</a>' +
+        '<a class="vien" href="' + esc(f.linkTai) + '" target="_blank" rel="noopener">Tải về</a></div></li>';
+    }).join('');
+    hien('du-phong-zalo', true);
+    el('du-phong-zalo').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  /*
+   * Trang web của Apps Script chạy trong khung (iframe) không được phép mở bảng chia sẻ.
+   * Cách xử lý: mở 1 tab mới (tab này không nằm trong khung nên được phép), đưa sẵn file vào tab đó,
+   * người dùng bấm 1 nút trong tab mới để chọn Zalo.
+   */
+  function duocChiaSeTaiCho() {
+    try {
+      if (window.self === window.top) return true;
+      return !!(document.featurePolicy && document.featurePolicy.allowsFeature('web-share'));
+    } catch (e) { return false; }
+  }
+
+  /* Mã chạy trong tab gửi file (được chép nguyên văn sang tab mới, không dùng biến bên ngoài) */
+  function kichBanTabGui() {
+    var D = JSON.parse(document.getElementById('du-lieu').textContent);
+    var nut = document.getElementById('gui'), tt = document.getElementById('tt'), dp = document.getElementById('dp');
+    function sangFile(x) {
+      var nhi = atob(x.b64), u = new Uint8Array(nhi.length);
+      for (var i = 0; i < nhi.length; i++) u[i] = nhi.charCodeAt(i);
+      return new File([u], x.ten, { type: x.mime });
+    }
+    function duPhong(lyDo) { tt.textContent = lyDo; tt.className = 'tt loi'; dp.hidden = false; }
+    var files = D.map(sangFile);
+    if (!navigator.share) {
+      nut.disabled = true;
+      duPhong('Trình duyệt này không hỗ trợ chia sẻ file. Dùng cách bên dưới.');
+      return;
+    }
+    nut.onclick = function () {
+      var d = { files: files };
+      var duoc = true;
+      try { if (navigator.canShare) duoc = navigator.canShare(d); } catch (e) { duoc = false; }
+      if (!duoc) {
+        var coExcel = D.some(function (x) { return x.mime !== 'application/pdf'; });
+        duPhong(coExcel
+          ? 'Điện thoại không cho chia sẻ file Excel từ trình duyệt (PDF thì được). Gửi file Excel theo cách bên dưới.'
+          : 'Điện thoại không cho chia sẻ file này. Dùng cách bên dưới.');
+        return;
+      }
+      navigator.share(d)
+        .then(function () {
+          tt.className = 'tt xong';
+          tt.textContent = 'Đã chuyển file sang ứng dụng bạn chọn. Có thể đóng tab này và quay lại app.';
+          nut.textContent = 'Gửi thêm lần nữa';
+        })
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') return;   // đóng bảng chia sẻ
+          duPhong('Không mở được bảng chia sẻ (' + ((e && e.name) || e) + '). Dùng cách bên dưới.');
+        });
+    };
+  }
+
+  function moTabGui(ds) {
+    var w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    if (!w) return false;
+    var duLieu = ds.map(function (f) {
+      var bn = boNhoZalo[f.id];
+      return { ten: bn.ten || f.ten, mime: bn.mime, b64: bn.b64 };
+    });
+    var json = JSON.stringify(duLieu).replace(/</g, '\\u003c');
+    var html = '<!doctype html><html lang="vi"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<title>Gửi qua Zalo</title><style>' +
+      'body{margin:0;background:#e6ecec;color:#1d2a2f;font-family:system-ui,-apple-system,sans-serif;line-height:1.5}' +
+      'main{max-width:480px;margin:0 auto;padding:28px 16px}' +
+      'h1{font-size:26px;margin:0 0 4px}.mo{color:#5b696e;margin:0 0 16px}' +
+      'ul{list-style:none;margin:0 0 20px;padding:0;background:#fff;border-radius:14px}' +
+      'li{padding:12px 14px;border-bottom:1px solid #d3dcdd;font-weight:600;overflow-wrap:anywhere}li:last-child{border-bottom:0}' +
+      '#gui{width:100%;min-height:60px;border:0;border-radius:16px;background:#0068ff;color:#fff;font-size:19px;font-weight:800}' +
+      '#gui:disabled{background:#9dbcf0}.tt{margin:14px 0 0;color:#5b696e}.tt.loi{color:#b3261e;font-weight:600}.tt.xong{color:#2d7a4c;font-weight:600}' +
+      '#dp{margin-top:14px;background:#fff;border-radius:14px;padding:12px 14px}#dp p{overflow-wrap:anywhere}' +
+      '#dp a{display:inline-block;margin:6px 8px 6px 0;padding:9px 14px;border:1.5px solid #1d2a2f;border-radius:10px;color:#1d2a2f;text-decoration:none;font-weight:700}' +
+      '</style></head><body><main>' +
+      '<h1>Gửi qua Zalo</h1><p class="mo">' + ds.length + ' file đã sẵn sàng</p>' +
+      '<ul>' + ds.map(function (f) { return '<li>' + esc(f.ten) + '</li>'; }).join('') + '</ul>' +
+      '<button id="gui" type="button">Chọn Zalo để gửi</button>' +
+      '<p class="tt" id="tt">Bấm nút, chọn Zalo trong bảng chia sẻ, rồi chọn người nhận hoặc nhóm.</p>' +
+      '<div id="dp" hidden><p>Mở file trong Drive, bấm ⋮ rồi chọn Gửi bản sao, chọn Zalo. Hoặc tải về rồi gửi tệp trong Zalo.</p>' +
+      ds.map(function (f) {
+        return '<p><b>' + esc(f.ten) + '</b><br><a href="' + esc(f.url) + '" target="_blank" rel="noopener">Mở Drive</a>' +
+          '<a href="' + esc(f.linkTai) + '" target="_blank" rel="noopener">Tải về</a></p>';
+      }).join('') + '</div>' +
+      '</main><script type="application/json" id="du-lieu">' + json + '<\/script>' +
+      '<script>(' + kichBanTabGui.toString() + ')();<\/script></body></html>';
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    return true;
+  }
+
+  /* Bấm Gửi: gọi bảng chia sẻ ngay trong lần chạm (điện thoại chỉ cho mở khi người dùng vừa bấm) */
+  function guiZalo() {
+    var ds = chonZalo.map(timZalo).filter(Boolean);
+    if (!ds.length) return;
+    if (!coChiaSe()) {
+      hienDuPhong(ds, 'Trình duyệt này không hỗ trợ gửi file trực tiếp.');
+      return;
+    }
+    var loi = ds.filter(function (f) { return !boNhoZalo[f.id] || boNhoZalo[f.id].tt !== 'xong'; });
+    if (loi.length) {
+      hienDuPhong(loi, 'Chưa lấy được nội dung ' + loi.length + ' file.');
+      return;
+    }
+    if (!duocChiaSeTaiCho()) {
+      if (moTabGui(ds)) {
+        hien('du-phong-zalo', false);
+        el('tom-tat-zalo').textContent = 'Đã mở tab gửi file. Trong tab đó, bấm "Chọn Zalo để gửi".';
+      } else {
+        hienDuPhong(ds, 'Điện thoại chặn mở tab mới.');
+      }
+      return;
+    }
+    var duLieu = { files: ds.map(function (f) { return boNhoZalo[f.id].file; }) };
+    var duoc = false;
+    try { duoc = navigator.canShare(duLieu); } catch (e) { duoc = false; }
+    if (!duoc) {
+      var coExcel = ds.some(function (f) { return f.loai !== 'PDF'; });
+      hienDuPhong(ds, coExcel
+        ? 'Điện thoại này không cho chia sẻ trực tiếp file Excel từ trình duyệt (file PDF thường gửi được).'
+        : 'Điện thoại này không cho chia sẻ file trực tiếp từ trang này.');
+      return;
+    }
+    navigator.share(duLieu)
+      .then(function () {
+        el('tom-tat-zalo').textContent = 'Đã chuyển ' + ds.length + ' file sang ứng dụng bạn chọn.';
+      })
+      .catch(function (e) {
+        if (e && e.name === 'AbortError') return;   // người dùng đóng bảng chia sẻ
+        hienDuPhong(ds, e && e.name === 'NotAllowedError'
+          ? 'Trang này chưa được điện thoại cho phép mở bảng chia sẻ.'
+          : 'Không mở được bảng chia sẻ.');
+      });
+  }
+
+  /* ---------- Hướng dẫn sử dụng ---------- */
+  function moHuongDan() {
+    hien('huong-dan', true);
+    el('huong-dan').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  el('mo-hd').onclick = moHuongDan;
+  el('mo-hd-duoi').onclick = moHuongDan;
+  el('dong-hd').onclick = function () {
+    hien('huong-dan', false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  el('mo-zalo').onclick = function () { moGuiZalo(''); };
+  el('kq-zalo').onclick = function () { moGuiZalo(idFileKetQua); };
+  el('huy-zalo').onclick = function () { hien('gui-zalo', false); };
+  el('nut-zalo').onclick = function () { if (cachGui === 'tele') guiTeleWeb(); else guiZalo(); };
+
+  /* ---------- Tổng quan: số đơn sẵn sàng xuất ---------- */
+  var lanDem = 0;
+  function demSanSang() {
+    if (!tabDangChon) return;
+    var lan = ++lanDem;
+    el('tq-nhan').textContent = 'Đơn sẵn sàng xuất, tab ' + tabDangChon;
+    document.querySelector('.tong-quan').classList.add('dang-dem');
+    goi('demDonSanSang', tabDangChon)
+      .then(function (kq) {
+        if (lan !== lanDem) return;
+        document.querySelector('.tong-quan').classList.remove('dang-dem');
+        el('tq-so').textContent = kq.tong;
+        veCuong(kq.ds);
+      })
+      .catch(function () {
+        if (lan !== lanDem) return;
+        document.querySelector('.tong-quan').classList.remove('dang-dem');
+        el('tq-so').textContent = '–';
+        el('tq-nhan').textContent = 'Chưa đếm được, bấm làm mới để thử lại';
+        veCuong(dsCuong.map(function (x) { return { ten: x.ten, url: x.url, soDon: '?', tenFile: x.tenFile }; }));
+      });
+  }
+
+  /* Cuống phiếu: lối tắt mở 2 file Google Sheet nguồn, kèm số đơn sẵn sàng của từng file */
+  var dsCuong = [];
+  var ICON_SHEET = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/></svg>';
+  var ICON_MO = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
+  function veCuong(ds) {
+    if (!ds || !ds.length) return;
+    dsCuong = ds;
+    el('tq-file').innerHTML = ds.map(function (x) {
+      var so = (x.soDon === '' || x.soDon === undefined) ? '…' : x.soDon;
+      var moTa = 'Mở file ' + (x.tenFile || x.ten) + (x.tab ? ', tab ' + x.tab : '');
+      return '<a class="cuong-file" href="' + esc(x.url) + '" target="_blank" rel="noopener" aria-label="' + esc(moTa) + '">' +
+        '<span class="cf-dau"><span class="cf-icon">' + ICON_SHEET + '</span>' +
+        '<span class="cf-so"><b>' + esc(so) + '</b>đơn</span></span>' +
+        '<span class="cf-ten">' + esc(x.ten) + '</span>' +
+        '<span class="cf-mo"><span>' + esc(x.tab ? 'Mở tab ' + x.tab : 'Mở file') + '</span>' + ICON_MO + '</span>' +
+        '</a>';
+    }).join('');
+  }
+  el('tq-lam-moi').onclick = demSanSang;
+
+  hienNgay();
+  goi('layThongTinWeb')
+    .then(function (d) {
+      if (d.thuMucUrl) { el('link-output').href = d.thuMucUrl; el('mo-output').href = d.thuMucUrl; }
+      // Không dùng API: thay ô "Nhập cân nặng" bằng ô "Thư mục Output"
+      var coApi = d.coKhoaApi !== false;
+      hien('mo-can', coApi);
+      hien('mo-output', !coApi);
+      el('thu-muc').textContent = d.thuMuc;
+      veCuong(d.fileNguon || []);
+      hienTabs(d.tabs, d.macDinh);
+      hienTuyChon(d.nguon || ['DS Lẻ'], d.mau || ['Mẫu 1'], d.mauDvvc || []);
+      demSanSang();
+      hienLichSu(d.lichSu);
+    })
+    .catch(baoLoi);
 </script>
 </body>
 </html>
